@@ -74,13 +74,13 @@ const QUOTES: Quote[] = [
   },
 ]
 
-const yen = new Intl.NumberFormat('ja-JP', {
+const yen = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'JPY',
   maximumFractionDigits: 0,
 })
 
-const dateFormat = new Intl.DateTimeFormat('ja-JP', {
+const dateFormat = new Intl.DateTimeFormat('en-US', {
   year: 'numeric',
   month: '2-digit',
   day: '2-digit',
