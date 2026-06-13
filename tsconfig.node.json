@@ -20,5 +20,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/node-env.ts"]
+  "include": ["vite.config.ts", "src/node-env.ts"]
 }
