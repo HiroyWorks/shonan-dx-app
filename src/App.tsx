@@ -105,23 +105,6 @@ function StatusBadge({ status }: { status: QuoteStatus }) {
   return <span className={className[status]}>{STATUS_LABEL[status]}</span>
 }
 
-function StatCard({
-  label,
-  value,
-  hint,
-}: {
-  label: string
-  value: string
-  hint: string
-}) {
-  return (
-    <div className="stat-card">
-      <p className="stat-label">{label}</p>
-      <p className="stat-value">{value}</p>
-      <p className="stat-hint">{hint}</p>
-    </div>
-  )
-}
 
 function App() {
   const [selectedItemId, setSelectedItemId] = useState(ITEMS[0].id)
@@ -138,6 +121,20 @@ function App() {
     [selectedItemId],
   )
 
+  const kpi = useMemo(() => {
+    const totalAmount = QUOTES.reduce((sum, q) => sum + q.amount, 0)
+    const wonAmount = QUOTES.filter((q) => q.status === 'Won').reduce((sum, q) => sum + q.amount, 0)
+    const invoicedAmount = QUOTES.filter((q) => q.status === 'Invoiced').reduce((sum, q) => sum + q.amount, 0)
+    const pendingAlertCount = QUOTES.filter((q) => q.status === 'Pending' && q.waitingDays >= 10).length
+
+    return {
+      totalAmount,
+      wonAmount,
+      invoicedAmount,
+      pendingAlertCount,
+    }
+  }, [])
+
   const subtotal = manualUnitPrice * quantity
   const tax = Math.round(subtotal * 0.1)
   const total = subtotal + tax
@@ -151,44 +148,40 @@ function App() {
   return (
     <div className="app-shell">
       <div className="page">
-        <header className="hero-card">
-          <div className="hero-main">
-            <div className="eyebrow">
-              <span className="eyebrow-dot" />
-              見積管理アプリ
-            </div>
-            <h1>素早く、明確で、洗練された見積を。</h1>
-            <p className="hero-copy">
-              品目マスタから選んで単価・数量を調整するだけで、リアルタイムに合計が更新されます。左が入力フォーム、右がプレビュー、上部に全体のパイプラインを表示します。
-            </p>
+        <header className="app-header">
+          <div className="header-brand">
+            <span className="brand-dot" />
+            <h1>Shonan Estimate</h1>
+            <span className="brand-tag">見積管理システム</span>
+          </div>
+        </header>
 
-            <div className="stat-grid">
-              <StatCard label="本日の新規" value="8" hint="モックデータを使用" />
-              <StatCard label="検討中" value="2" hint="長期保留はアラート表示" />
-              <StatCard label="受注率" value="42%" hint="一覧で進捗が一目でわかる" />
+        <section className="kpi-section">
+          <div className="kpi-grid">
+            <div className="kpi-card">
+              <span className="kpi-label">見積総額 (全期間)</span>
+              <strong className="kpi-value">{formatYen(kpi.totalAmount)}</strong>
+              <span className="kpi-hint">全見積データの累計</span>
+            </div>
+            <div className="kpi-card">
+              <span className="kpi-label">受注確定額</span>
+              <strong className="kpi-value value-success">{formatYen(kpi.wonAmount)}</strong>
+              <span className="kpi-hint">成約済案件の合計</span>
+            </div>
+            <div className="kpi-card">
+              <span className="kpi-label">未回収・請求済額</span>
+              <strong className="kpi-value value-info">{formatYen(kpi.invoicedAmount)}</strong>
+              <span className="kpi-hint">請求済み未入金の合計</span>
+            </div>
+            <div className="kpi-card kpi-card-alert">
+              <span className="kpi-label">要フォロー案件</span>
+              <strong className={`kpi-value ${kpi.pendingAlertCount > 0 ? 'value-danger' : ''}`}>
+                {kpi.pendingAlertCount} <span className="kpi-unit">件</span>
+              </strong>
+              <span className="kpi-hint">検討中かつ10日以上経過</span>
             </div>
           </div>
-
-          <aside className="hero-side">
-            <p className="mini-label">クイックヒント</p>
-            <h2>日常業務に最適化</h2>
-            <ul className="tip-list">
-              <li>品目マスタから単価を自動入力</li>
-              <li>小計・消費税・合計をリアルタイム更新</li>
-              <li>提出済み見積にはステータスバッジを表示</li>
-            </ul>
-            <div className="mini-metrics">
-              <div>
-                <span>消費税率</span>
-                <strong>10%</strong>
-              </div>
-              <div>
-                <span>通貨</span>
-                <strong>JPY</strong>
-              </div>
-            </div>
-          </aside>
-        </header>
+        </section>
 
         <main className="content-grid">
           <section className="left-column">
