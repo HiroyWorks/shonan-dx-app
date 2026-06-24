@@ -11,6 +11,13 @@ type Item = {
   unit: string
 }
 
+type LineItem = {
+  id: string
+  itemId: string
+  quantity: number
+  unitPrice: number
+}
+
 type Quote = {
   id: string
   quoteNo: string
@@ -89,6 +96,12 @@ const dateFormat = new Intl.DateTimeFormat('ja-JP', {
 const formatYen = (value: number) => yen.format(value)
 const formatDate = (value: string) => dateFormat.format(new Date(value))
 
+let nextId = 1
+const newLineItem = (itemId: string = ITEMS[0].id): LineItem => {
+  const item = ITEMS.find((i) => i.id === itemId) ?? ITEMS[0]
+  return { id: String(nextId++), itemId: item.id, quantity: 1, unitPrice: item.unitPrice }
+}
+
 function StatusBadge({ status }: { status: QuoteStatus }) {
   const className: Record<QuoteStatus, string> = {
     Pending: 'status-badge status-pending',
@@ -100,29 +113,44 @@ function StatusBadge({ status }: { status: QuoteStatus }) {
 }
 
 function App() {
-  const [selectedItemId, setSelectedItemId] = useState(ITEMS[0].id)
   const [clientName, setClientName] = useState('Minato Planning Co.')
   const [projectName, setProjectName] = useState('Corporate site estimate')
-  const [quantity, setQuantity] = useState(3)
-  const [manualUnitPrice, setManualUnitPrice] = useState(ITEMS[0].unitPrice)
   const [memo, setMemo] = useState(
     'Estimate is valid for 30 days. Final adjustments will be made after requirements are fixed.',
   )
+  const [lineItems, setLineItems] = useState<LineItem[]>([newLineItem()])
 
-  const selectedItem = useMemo(
-    () => ITEMS.find((item) => item.id === selectedItemId) ?? ITEMS[0],
-    [selectedItemId],
+  // 明細行の品目変更（単価を自動セット）
+  const handleLineItemChange = (id: string, field: keyof LineItem, value: string | number) => {
+    setLineItems((prev) =>
+      prev.map((row) => {
+        if (row.id !== id) return row
+        if (field === 'itemId') {
+          const item = ITEMS.find((i) => i.id === value) ?? ITEMS[0]
+          return { ...row, itemId: item.id, unitPrice: item.unitPrice }
+        }
+        return { ...row, [field]: value }
+      }),
+    )
+  }
+
+  // 行追加
+  const addRow = () => {
+    setLineItems((prev) => [...prev, newLineItem()])
+  }
+
+  // 行削除（最低1行残す）
+  const removeRow = (id: string) => {
+    setLineItems((prev) => (prev.length > 1 ? prev.filter((row) => row.id !== id) : prev))
+  }
+
+  // 合計計算
+  const subtotal = useMemo(
+    () => lineItems.reduce((sum, row) => sum + row.unitPrice * row.quantity, 0),
+    [lineItems],
   )
-
-  const subtotal = manualUnitPrice * quantity
   const tax = Math.round(subtotal * 0.1)
   const total = subtotal + tax
-
-  const handleItemChange = (nextItemId: string) => {
-    const nextItem = ITEMS.find((item) => item.id === nextItemId) ?? ITEMS[0]
-    setSelectedItemId(nextItemId)
-    setManualUnitPrice(nextItem.unitPrice)
-  }
 
   return (
     <div className="app-shell">
@@ -218,69 +246,120 @@ function App() {
                   <p className="section-kicker">Speed Quote</p>
                   <h2>Fast estimate entry</h2>
                 </div>
-                <p className="section-copy">Changing item, price, or quantity updates the total and preview immediately.</p>
+                <p className="section-copy">Add multiple line items. Changing item, price, or quantity updates the total and preview immediately.</p>
               </div>
 
               <div className="form-grid">
                 <div className="form-column">
+                  {/* クライアント・プロジェクト */}
                   <div className="field-grid">
                     <label className="field">
                       <span>Client</span>
-                      <input value={clientName} onChange={(event) => setClientName(event.target.value)} />
+                      <input value={clientName} onChange={(e) => setClientName(e.target.value)} />
                     </label>
                     <label className="field">
                       <span>Project</span>
-                      <input value={projectName} onChange={(event) => setProjectName(event.target.value)} />
+                      <input value={projectName} onChange={(e) => setProjectName(e.target.value)} />
                     </label>
                   </div>
 
-                  <div className="field-grid item-grid">
-                    <label className="field field-wide">
-                      <span>Item</span>
-                      <select value={selectedItemId} onChange={(event) => handleItemChange(event.target.value)}>
-                        {ITEMS.map((item) => (
-                          <option key={item.id} value={item.id}>{item.name} ({item.category})</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="field">
-                      <span>Qty</span>
-                      <input type="number" min={1} value={quantity} onChange={(event) => setQuantity(Math.max(1, Number(event.target.value) || 1))} />
-                    </label>
-                  </div>
-
-                  <div className="field-grid">
-                    <label className="field">
-                      <span>Unit price</span>
-                      <div className="input-addon">
-                        <input type="number" min={0} value={manualUnitPrice} onChange={(event) => setManualUnitPrice(Math.max(0, Number(event.target.value) || 0))} />
-                        <span>JPY / {selectedItem.unit}</span>
-                      </div>
-                    </label>
-                    <div className="selected-card">
-                      <p className="mini-label">Selected item</p>
-                      <strong>{selectedItem.name}</strong>
-                      <span>{selectedItem.category} / {selectedItem.unit}</span>
+                  {/* 明細テーブル */}
+                  <div>
+                    <span className="field" style={{ marginBottom: 8, display: 'block' }}>
+                      <span>Line items</span>
+                    </span>
+                    <div className="form-table-wrap">
+                      <table className="form-items-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: '36%' }}>Item</th>
+                            <th style={{ width: '22%' }}>Unit price</th>
+                            <th style={{ width: '14%' }}>Qty</th>
+                            <th className="align-right" style={{ width: '20%' }}>Amount</th>
+                            <th style={{ width: '8%' }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lineItems.map((row) => {
+                            const item = ITEMS.find((i) => i.id === row.itemId) ?? ITEMS[0]
+                            const rowTotal = row.unitPrice * row.quantity
+                            return (
+                              <tr key={row.id}>
+                                <td>
+                                  <select
+                                    className="form-table-select"
+                                    value={row.itemId}
+                                    onChange={(e) => handleLineItemChange(row.id, 'itemId', e.target.value)}
+                                  >
+                                    {ITEMS.map((i) => (
+                                      <option key={i.id} value={i.id}>{i.name}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td>
+                                  <div className="table-input-addon">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      className="form-table-input"
+                                      value={row.unitPrice}
+                                      onChange={(e) =>
+                                        handleLineItemChange(row.id, 'unitPrice', Math.max(0, Number(e.target.value) || 0))
+                                      }
+                                    />
+                                    <span className="unit-label">{item.unit}</span>
+                                  </div>
+                                </td>
+                                <td>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    className="form-table-input"
+                                    value={row.quantity}
+                                    onChange={(e) =>
+                                      handleLineItemChange(row.id, 'quantity', Math.max(1, Number(e.target.value) || 1))
+                                    }
+                                  />
+                                </td>
+                                <td className="align-right amount" style={{ fontSize: '0.9rem' }}>
+                                  {formatYen(rowTotal)}
+                                </td>
+                                <td>
+                                  <button
+                                    className="btn-table-delete"
+                                    onClick={() => removeRow(row.id)}
+                                    title="Delete row"
+                                    disabled={lineItems.length === 1}
+                                  >
+                                    ✕
+                                  </button>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
                     </div>
+                    <button className="btn-secondary btn-add-row" onClick={addRow}>
+                      ＋ Add line item
+                    </button>
                   </div>
 
+                  {/* メモ */}
                   <label className="field field-textarea">
                     <span>Memo</span>
-                    <textarea rows={4} value={memo} onChange={(event) => setMemo(event.target.value)} />
+                    <textarea rows={4} value={memo} onChange={(e) => setMemo(e.target.value)} />
                   </label>
                 </div>
 
                 <aside className="summary-column">
                   <div className="summary-card">
                     <p className="summary-kicker">Live Summary</p>
+                    <div className="summary-row"><span>Lines</span><strong>{lineItems.length}</strong></div>
                     <div className="summary-row"><span>Subtotal</span><strong>{formatYen(subtotal)}</strong></div>
-                    <div className="summary-row"><span>Tax</span><strong>{formatYen(tax)}</strong></div>
+                    <div className="summary-row"><span>Tax (10%)</span><strong>{formatYen(tax)}</strong></div>
                     <div className="summary-divider" />
                     <div className="summary-total"><span>Total</span><strong>{formatYen(total)}</strong></div>
-                    <div className="micro-grid">
-                      <div><span>Unit price</span><strong>{formatYen(manualUnitPrice)}</strong></div>
-                      <div><span>Qty</span><strong>{quantity}</strong></div>
-                    </div>
                   </div>
                 </aside>
               </div>
@@ -314,8 +393,23 @@ function App() {
 
                   <div className="paper-table-wrap">
                     <table className="paper-table">
-                      <thead><tr><th>Item</th><th className="align-right">Unit</th><th className="align-right">Qty</th><th className="align-right">Amount</th></tr></thead>
-                      <tbody><tr><td><strong>{selectedItem.name}</strong><span>{selectedItem.category} / {selectedItem.unit}</span></td><td className="align-right">{formatYen(manualUnitPrice)}</td><td className="align-right">{quantity}</td><td className="align-right amount">{formatYen(subtotal)}</td></tr></tbody>
+                      <thead><tr><th>Item</th><th className="align-right">Unit price</th><th className="align-right">Qty</th><th className="align-right">Amount</th></tr></thead>
+                      <tbody>
+                        {lineItems.map((row) => {
+                          const item = ITEMS.find((i) => i.id === row.itemId) ?? ITEMS[0]
+                          return (
+                            <tr key={row.id}>
+                              <td>
+                                <strong>{item.name}</strong>
+                                <span>{item.category} / {item.unit}</span>
+                              </td>
+                              <td className="align-right">{formatYen(row.unitPrice)}</td>
+                              <td className="align-right">{row.quantity}</td>
+                              <td className="align-right amount">{formatYen(row.unitPrice * row.quantity)}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
                     </table>
                   </div>
 
@@ -323,7 +417,7 @@ function App() {
                     <div className="paper-note"><p className="paper-small">Memo</p><p>{memo}</p></div>
                     <div className="paper-totals">
                       <div><span>Subtotal</span><strong>{formatYen(subtotal)}</strong></div>
-                      <div><span>Tax</span><strong>{formatYen(tax)}</strong></div>
+                      <div><span>Tax (10%)</span><strong>{formatYen(tax)}</strong></div>
                       <div className="total-line" />
                       <div className="grand-total"><span>Total</span><strong>{formatYen(total)}</strong></div>
                     </div>
