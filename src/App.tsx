@@ -66,7 +66,7 @@ const ITEMS: Item[] = [
   { id: 'photo', name: '撮影ディレクション', category: '現場', unitPrice: 80000, unit: '回' },
 ]
 
-const QUOTES: Quote[] = [
+const INITIAL_QUOTES: Quote[] = [
   {
     id: 'Q-2026-041',
     quoteNo: 'Q-2026-041',
@@ -129,6 +129,8 @@ const QUOTES: Quote[] = [
   },
 ]
 
+const QUOTES_STORAGE_KEY = 'estimate-management-quotes'
+
 const statusLabels: Record<QuoteStatus, string> = {
   Pending: '返答待ち',
   Won: '成約',
@@ -152,6 +154,38 @@ const formatDate = (value: string) => dateFormat.format(new Date(value))
 
 const findItem = (itemId: string) => ITEMS.find((item) => item.id === itemId) ?? ITEMS[0]
 const calcSubtotal = (rows: PreviewLineItem[]) => rows.reduce((sum, row) => sum + row.unitPrice * row.quantity, 0)
+
+const toLocalDateString = (date = new Date()) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const getNextQuoteNo = (quotes: Quote[]) => {
+  const year = new Date().getFullYear()
+  const prefix = `Q-${year}-`
+  const maxSequence = quotes.reduce((max, quote) => {
+    if (!quote.quoteNo.startsWith(prefix)) return max
+    const sequence = Number(quote.quoteNo.slice(prefix.length))
+    return Number.isFinite(sequence) ? Math.max(max, sequence) : max
+  }, 0)
+
+  return `${prefix}${String(maxSequence + 1).padStart(3, '0')}`
+}
+
+const loadInitialQuotes = () => {
+  if (typeof window === 'undefined') return INITIAL_QUOTES
+
+  try {
+    const stored = window.localStorage.getItem(QUOTES_STORAGE_KEY)
+    if (!stored) return INITIAL_QUOTES
+    const parsed = JSON.parse(stored) as Quote[]
+    return Array.isArray(parsed) ? parsed : INITIAL_QUOTES
+  } catch {
+    return INITIAL_QUOTES
+  }
+}
 
 let nextId = 1
 const newLineItem = (itemId: string = ITEMS[0].id): LineItem => {
@@ -242,11 +276,17 @@ function QuotePreview({ preview }: { preview: PreviewQuote }) {
 }
 
 function App() {
+  const [quotes, setQuotes] = useState<Quote[]>(loadInitialQuotes)
   const [clientName, setClientName] = useState('株式会社みなと企画')
   const [projectName, setProjectName] = useState('コーポレートサイト見積')
   const [memo, setMemo] = useState('見積有効期限は30日です。要件確定後に最終調整いたします。')
   const [lineItems, setLineItems] = useState<LineItem[]>([newLineItem()])
   const [previewQuote, setPreviewQuote] = useState<PreviewQuote | null>(null)
+  const [submitMessage, setSubmitMessage] = useState('')
+
+  useEffect(() => {
+    window.localStorage.setItem(QUOTES_STORAGE_KEY, JSON.stringify(quotes))
+  }, [quotes])
 
   useEffect(() => {
     if (!previewQuote) return
@@ -302,16 +342,54 @@ function App() {
   const subtotal = useMemo(() => calcSubtotal(draftRows), [draftRows])
   const tax = Math.round(subtotal * 0.1)
   const total = subtotal + tax
+  const nextQuoteNo = useMemo(() => getNextQuoteNo(quotes), [quotes])
+  const quoteStats = useMemo(() => ({
+    pipelineTotal: quotes.reduce((sum, quote) => sum + quote.amount, 0),
+    wonAmount: quotes.filter((quote) => quote.status === 'Won').reduce((sum, quote) => sum + quote.amount, 0),
+    invoicedAmount: quotes.filter((quote) => quote.status === 'Invoiced').reduce((sum, quote) => sum + quote.amount, 0),
+    needsFollowUp: quotes.filter((quote) => quote.status === 'Pending' && quote.waitingDays >= 10).length,
+  }), [quotes])
 
   const openDraftPreview = () => {
+    const today = toLocalDateString()
     setPreviewQuote({
-      quoteNo: 'Q-2026-045',
-      issuedAt: '2026/06/25',
+      quoteNo: nextQuoteNo,
+      issuedAt: formatDate(today),
       client: clientName,
       project: projectName,
       memo,
       rows: draftRows,
     })
+  }
+
+  const handleSubmitQuote = () => {
+    const trimmedClient = clientName.trim()
+    const trimmedProject = projectName.trim()
+    if (!trimmedClient || !trimmedProject) {
+      setSubmitMessage('顧客名と案件名を入力してください。')
+      return
+    }
+
+    const today = toLocalDateString()
+    const submittedQuote: Quote = {
+      id: `${nextQuoteNo}-${Date.now()}`,
+      quoteNo: nextQuoteNo,
+      client: trimmedClient,
+      project: trimmedProject,
+      amount: total,
+      status: 'Pending',
+      createdAt: today,
+      waitingDays: 0,
+      memo,
+      lineItems: lineItems.map((row) => ({
+        itemId: row.itemId,
+        quantity: row.quantity,
+        unitPrice: row.unitPrice,
+      })),
+    }
+
+    setQuotes((prev) => [submittedQuote, ...prev])
+    setSubmitMessage(`${nextQuoteNo} を提出済み一覧に追加しました。`)
   }
 
   return (
@@ -329,22 +407,22 @@ function App() {
           <div className="kpi-grid">
             <div className="kpi-card">
               <span className="kpi-label">見積総額</span>
-              <strong className="kpi-value">{formatYen(1738000)}</strong>
+              <strong className="kpi-value">{formatYen(quoteStats.pipelineTotal)}</strong>
               <span className="kpi-hint">提出済み見積の合計</span>
             </div>
             <div className="kpi-card">
               <span className="kpi-label">成約金額</span>
-              <strong className="kpi-value value-success">{formatYen(264000)}</strong>
+              <strong className="kpi-value value-success">{formatYen(quoteStats.wonAmount)}</strong>
               <span className="kpi-hint">成約済み案件の合計</span>
             </div>
             <div className="kpi-card">
               <span className="kpi-label">請求済み</span>
-              <strong className="kpi-value value-info">{formatYen(198000)}</strong>
+              <strong className="kpi-value value-info">{formatYen(quoteStats.invoicedAmount)}</strong>
               <span className="kpi-hint">請求処理済みの金額</span>
             </div>
             <div className="kpi-card kpi-card-alert">
               <span className="kpi-label">要フォロー</span>
-              <strong className="kpi-value value-danger">2</strong>
+              <strong className="kpi-value value-danger">{quoteStats.needsFollowUp}</strong>
               <span className="kpi-hint">10日以上返答待ちの案件</span>
             </div>
           </div>
@@ -375,7 +453,7 @@ function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {QUOTES.map((quote) => {
+                  {quotes.map((quote) => {
                     const needsAttention = quote.status === 'Pending' && quote.waitingDays >= 10
 
                     return (
@@ -412,10 +490,17 @@ function App() {
               <div>
                 <h2>見積入力</h2>
               </div>
-              <button className="btn-primary" onClick={openDraftPreview}>
-                プレビュー
-              </button>
+              <div className="quote-actions">
+                <button className="btn-secondary" onClick={openDraftPreview}>
+                  プレビュー
+                </button>
+                <button className="btn-primary" onClick={handleSubmitQuote}>
+                  提出
+                </button>
+              </div>
             </div>
+
+            {submitMessage && <div className="submit-message">{submitMessage}</div>}
 
             <div className="form-grid">
               <div className="form-column">
@@ -525,9 +610,14 @@ function App() {
                   <div className="summary-row"><span>消費税（10%）</span><strong>{formatYen(tax)}</strong></div>
                   <div className="summary-divider" />
                   <div className="summary-total"><span>合計</span><strong>{formatYen(total)}</strong></div>
-                  <button className="btn-preview-on-card" onClick={openDraftPreview}>
-                    見積書を確認
-                  </button>
+                  <div className="summary-actions">
+                    <button className="btn-preview-on-card" onClick={openDraftPreview}>
+                      見積書を確認
+                    </button>
+                    <button className="btn-submit-on-card" onClick={handleSubmitQuote}>
+                      提出する
+                    </button>
+                  </div>
                 </div>
               </aside>
             </div>

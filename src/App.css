@@ -1338,3 +1338,62 @@
 .quote-panel .panel-head h2 {
   margin-top: 0;
 }
+
+.quote-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.submit-message {
+  margin: 18px 24px 0;
+  border: 1px solid #bfdbfe;
+  border-radius: 16px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 0.92rem;
+  font-weight: 700;
+  padding: 12px 16px;
+}
+
+.summary-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.summary-actions .btn-preview-on-card {
+  margin-top: 0;
+}
+
+.btn-submit-on-card {
+  width: 100%;
+  border: 1px solid rgba(96, 165, 250, 0.6);
+  border-radius: 14px;
+  background: #ffffff;
+  color: #1e3a8a;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 12px 14px;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.btn-submit-on-card:hover {
+  background: #dbeafe;
+  transform: translateY(-1px);
+}
+
+@media (max-width: 720px) {
+  .quote-actions,
+  .quote-actions .btn-primary,
+  .quote-actions .btn-secondary {
+    width: 100%;
+  }
+
+  .submit-message {
+    margin-left: 16px;
+    margin-right: 16px;
+  }
+}
