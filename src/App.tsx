@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import './App.css'
+
+void React
 
 type QuoteStatus = 'Pending' | 'Won' | 'Invoiced'
 
@@ -120,7 +122,6 @@ function App() {
   )
   const [lineItems, setLineItems] = useState<LineItem[]>([newLineItem()])
 
-  // 明細行の品目変更（単価を自動セット）
   const handleLineItemChange = (id: string, field: keyof LineItem, value: string | number) => {
     setLineItems((prev) =>
       prev.map((row) => {
@@ -133,18 +134,12 @@ function App() {
       }),
     )
   }
-
-  // 行追加
   const addRow = () => {
     setLineItems((prev) => [...prev, newLineItem()])
   }
-
-  // 行削除（最低1行残す）
   const removeRow = (id: string) => {
     setLineItems((prev) => (prev.length > 1 ? prev.filter((row) => row.id !== id) : prev))
   }
-
-  // 合計計算
   const subtotal = useMemo(
     () => lineItems.reduce((sum, row) => sum + row.unitPrice * row.quantity, 0),
     [lineItems],
@@ -251,7 +246,7 @@ function App() {
 
               <div className="form-grid">
                 <div className="form-column">
-                  {/* クライアント・プロジェクト */}
+                  {/* 繧ｯ繝ｩ繧､繧｢繝ｳ繝医・繝励Ο繧ｸ繧ｧ繧ｯ繝・*/}
                   <div className="field-grid">
                     <label className="field">
                       <span>Client</span>
@@ -263,7 +258,7 @@ function App() {
                     </label>
                   </div>
 
-                  {/* 明細テーブル */}
+                  {/* Form section */}
                   <div>
                     <span className="field" style={{ marginBottom: 8, display: 'block' }}>
                       <span>Line items</span>
@@ -331,7 +326,7 @@ function App() {
                                     title="Delete row"
                                     disabled={lineItems.length === 1}
                                   >
-                                    ✕
+                                    x
                                   </button>
                                 </td>
                               </tr>
@@ -341,11 +336,11 @@ function App() {
                       </table>
                     </div>
                     <button className="btn-secondary btn-add-row" onClick={addRow}>
-                      ＋ Add line item
+                      + Add line item
                     </button>
                   </div>
 
-                  {/* メモ */}
+                  {/* Form section */}
                   <label className="field field-textarea">
                     <span>Memo</span>
                     <textarea rows={4} value={memo} onChange={(e) => setMemo(e.target.value)} />
