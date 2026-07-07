@@ -213,7 +213,7 @@
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 840px;
+  min-width: 980px;
 }
 
 .data-table thead {
@@ -1310,4 +1310,31 @@
     box-shadow: none !important;
     padding: 0 !important;
   }
+}
+
+.quote-history-table {
+  min-width: 1080px;
+}
+
+.btn-table-preview {
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 8px 12px;
+  white-space: nowrap;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.btn-table-preview:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  transform: translateY(-1px);
+}
+
+.quote-panel .panel-head h2 {
+  margin-top: 0;
 }

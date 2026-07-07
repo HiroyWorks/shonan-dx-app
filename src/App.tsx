@@ -20,6 +20,12 @@ type LineItem = {
   unitPrice: number
 }
 
+type QuoteLineItem = {
+  itemId: string
+  quantity: number
+  unitPrice?: number
+}
+
 type Quote = {
   id: string
   quoteNo: string
@@ -29,6 +35,26 @@ type Quote = {
   status: QuoteStatus
   createdAt: string
   waitingDays: number
+  memo: string
+  lineItems: QuoteLineItem[]
+}
+
+type PreviewLineItem = {
+  id: string
+  name: string
+  category: string
+  unit: string
+  quantity: number
+  unitPrice: number
+}
+
+type PreviewQuote = {
+  quoteNo: string
+  issuedAt: string
+  client: string
+  project: string
+  memo: string
+  rows: PreviewLineItem[]
 }
 
 const ITEMS: Item[] = [
@@ -50,6 +76,11 @@ const QUOTES: Quote[] = [
     status: 'Pending',
     createdAt: '2026-06-02',
     waitingDays: 11,
+    memo: '商品撮影素材のご提供後、下層ページ構成を確定します。',
+    lineItems: [
+      { itemId: 'site', quantity: 2 },
+      { itemId: 'lp', quantity: 1 },
+    ],
   },
   {
     id: 'Q-2026-038',
@@ -60,6 +91,10 @@ const QUOTES: Quote[] = [
     status: 'Won',
     createdAt: '2026-05-28',
     waitingDays: 0,
+    memo: '公開後2週間の軽微な文言修正を含みます。',
+    lineItems: [
+      { itemId: 'lp', quantity: 2 },
+    ],
   },
   {
     id: 'Q-2026-036',
@@ -70,6 +105,11 @@ const QUOTES: Quote[] = [
     status: 'Invoiced',
     createdAt: '2026-05-23',
     waitingDays: 0,
+    memo: '月次レポートと軽微な更新作業を含む6か月分の保守費用です。',
+    lineItems: [
+      { itemId: 'maintenance', quantity: 6 },
+      { itemId: 'seo', quantity: 2 },
+    ],
   },
   {
     id: 'Q-2026-034',
@@ -80,6 +120,12 @@ const QUOTES: Quote[] = [
     status: 'Pending',
     createdAt: '2026-05-18',
     waitingDays: 26,
+    memo: '既存CMSの調査後、必要に応じて実装範囲を再調整します。',
+    lineItems: [
+      { itemId: 'site', quantity: 2 },
+      { itemId: 'photo', quantity: 1 },
+      { itemId: 'support', quantity: 20 },
+    ],
   },
 ]
 
@@ -104,11 +150,33 @@ const dateFormat = new Intl.DateTimeFormat('ja-JP', {
 const formatYen = (value: number) => yen.format(value)
 const formatDate = (value: string) => dateFormat.format(new Date(value))
 
+const findItem = (itemId: string) => ITEMS.find((item) => item.id === itemId) ?? ITEMS[0]
+const calcSubtotal = (rows: PreviewLineItem[]) => rows.reduce((sum, row) => sum + row.unitPrice * row.quantity, 0)
+
 let nextId = 1
 const newLineItem = (itemId: string = ITEMS[0].id): LineItem => {
-  const item = ITEMS.find((i) => i.id === itemId) ?? ITEMS[0]
+  const item = findItem(itemId)
   return { id: String(nextId++), itemId: item.id, quantity: 1, unitPrice: item.unitPrice }
 }
+
+const quoteToPreview = (quote: Quote): PreviewQuote => ({
+  quoteNo: quote.quoteNo,
+  issuedAt: formatDate(quote.createdAt),
+  client: quote.client,
+  project: quote.project,
+  memo: quote.memo,
+  rows: quote.lineItems.map((row, index) => {
+    const item = findItem(row.itemId)
+    return {
+      id: `${quote.id}-${index}`,
+      name: item.name,
+      category: item.category,
+      unit: item.unit,
+      quantity: row.quantity,
+      unitPrice: row.unitPrice ?? item.unitPrice,
+    }
+  }),
+})
 
 function StatusBadge({ status }: { status: QuoteStatus }) {
   const className: Record<QuoteStatus, string> = {
@@ -120,18 +188,71 @@ function StatusBadge({ status }: { status: QuoteStatus }) {
   return <span className={className[status]}>{statusLabels[status]}</span>
 }
 
+function QuotePreview({ preview }: { preview: PreviewQuote }) {
+  const previewSubtotal = calcSubtotal(preview.rows)
+  const previewTax = Math.round(previewSubtotal * 0.1)
+  const previewTotal = previewSubtotal + previewTax
+
+  return (
+    <div className="paper">
+      <div className="paper-header">
+        <div>
+          <p className="paper-kicker">Estimate</p>
+          <h3>見積書</h3>
+          <p className="paper-sub">No. {preview.quoteNo}</p>
+        </div>
+        <div className="paper-date"><span>発行日</span><strong>{preview.issuedAt}</strong></div>
+      </div>
+
+      <div className="paper-meta">
+        <div className="paper-box"><p className="paper-small">宛先</p><strong>{preview.client}</strong><span>{preview.project}</span></div>
+        <div className="paper-box"><p className="paper-small">差出人</p><strong>個人事業主</strong><span>神奈川県湘南エリア</span><span>Tel. 000-0000-0000</span></div>
+      </div>
+
+      <div className="paper-table-wrap">
+        <table className="paper-table">
+          <thead><tr><th>品目</th><th className="align-right">単価</th><th className="align-right">数量</th><th className="align-right">金額</th></tr></thead>
+          <tbody>
+            {preview.rows.map((row) => (
+              <tr key={row.id}>
+                <td>
+                  <strong>{row.name}</strong>
+                  <span>{row.category} / {row.unit}</span>
+                </td>
+                <td className="align-right">{formatYen(row.unitPrice)}</td>
+                <td className="align-right">{row.quantity}</td>
+                <td className="align-right amount">{formatYen(row.unitPrice * row.quantity)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="paper-bottom">
+        <div className="paper-note"><p className="paper-small">備考</p><p>{preview.memo}</p></div>
+        <div className="paper-totals">
+          <div><span>小計</span><strong>{formatYen(previewSubtotal)}</strong></div>
+          <div><span>消費税（10%）</span><strong>{formatYen(previewTax)}</strong></div>
+          <div className="total-line" />
+          <div className="grand-total"><span>合計</span><strong>{formatYen(previewTotal)}</strong></div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const [clientName, setClientName] = useState('株式会社みなと企画')
   const [projectName, setProjectName] = useState('コーポレートサイト見積')
   const [memo, setMemo] = useState('見積有効期限は30日です。要件確定後に最終調整いたします。')
   const [lineItems, setLineItems] = useState<LineItem[]>([newLineItem()])
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [previewQuote, setPreviewQuote] = useState<PreviewQuote | null>(null)
 
   useEffect(() => {
-    if (!isPreviewOpen) return
+    if (!previewQuote) return
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setIsPreviewOpen(false)
+      if (event.key === 'Escape') setPreviewQuote(null)
     }
 
     document.body.style.overflow = 'hidden'
@@ -141,14 +262,14 @@ function App() {
       document.body.style.overflow = ''
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isPreviewOpen])
+  }, [previewQuote])
 
   const handleLineItemChange = (id: string, field: keyof LineItem, value: string | number) => {
     setLineItems((prev) =>
       prev.map((row) => {
         if (row.id !== id) return row
         if (field === 'itemId') {
-          const item = ITEMS.find((i) => i.id === value) ?? ITEMS[0]
+          const item = findItem(String(value))
           return { ...row, itemId: item.id, unitPrice: item.unitPrice }
         }
         return { ...row, [field]: value }
@@ -164,62 +285,34 @@ function App() {
     setLineItems((prev) => (prev.length > 1 ? prev.filter((row) => row.id !== id) : prev))
   }
 
-  const subtotal = useMemo(
-    () => lineItems.reduce((sum, row) => sum + row.unitPrice * row.quantity, 0),
+  const draftRows = useMemo(
+    () => lineItems.map((row) => {
+      const item = findItem(row.itemId)
+      return {
+        id: row.id,
+        name: item.name,
+        category: item.category,
+        unit: item.unit,
+        quantity: row.quantity,
+        unitPrice: row.unitPrice,
+      }
+    }),
     [lineItems],
   )
+  const subtotal = useMemo(() => calcSubtotal(draftRows), [draftRows])
   const tax = Math.round(subtotal * 0.1)
   const total = subtotal + tax
 
-  const quotePreview = (
-    <div className="paper">
-      <div className="paper-header">
-        <div>
-          <p className="paper-kicker">Estimate</p>
-          <h3>見積書</h3>
-          <p className="paper-sub">No. Q-2026-045</p>
-        </div>
-        <div className="paper-date"><span>発行日</span><strong>2026/06/25</strong></div>
-      </div>
-
-      <div className="paper-meta">
-        <div className="paper-box"><p className="paper-small">宛先</p><strong>{clientName}</strong><span>{projectName}</span></div>
-        <div className="paper-box"><p className="paper-small">差出人</p><strong>個人事業主</strong><span>神奈川県湘南エリア</span><span>Tel. 000-0000-0000</span></div>
-      </div>
-
-      <div className="paper-table-wrap">
-        <table className="paper-table">
-          <thead><tr><th>品目</th><th className="align-right">単価</th><th className="align-right">数量</th><th className="align-right">金額</th></tr></thead>
-          <tbody>
-            {lineItems.map((row) => {
-              const item = ITEMS.find((i) => i.id === row.itemId) ?? ITEMS[0]
-              return (
-                <tr key={row.id}>
-                  <td>
-                    <strong>{item.name}</strong>
-                    <span>{item.category} / {item.unit}</span>
-                  </td>
-                  <td className="align-right">{formatYen(row.unitPrice)}</td>
-                  <td className="align-right">{row.quantity}</td>
-                  <td className="align-right amount">{formatYen(row.unitPrice * row.quantity)}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="paper-bottom">
-        <div className="paper-note"><p className="paper-small">備考</p><p>{memo}</p></div>
-        <div className="paper-totals">
-          <div><span>小計</span><strong>{formatYen(subtotal)}</strong></div>
-          <div><span>消費税（10%）</span><strong>{formatYen(tax)}</strong></div>
-          <div className="total-line" />
-          <div className="grand-total"><span>合計</span><strong>{formatYen(total)}</strong></div>
-        </div>
-      </div>
-    </div>
-  )
+  const openDraftPreview = () => {
+    setPreviewQuote({
+      quoteNo: 'Q-2026-045',
+      issuedAt: '2026/06/25',
+      client: clientName,
+      project: projectName,
+      memo,
+      rows: draftRows,
+    })
+  }
 
   return (
     <div className="app-shell">
@@ -268,7 +361,7 @@ function App() {
             </div>
 
             <div className="table-wrap">
-              <table className="data-table">
+              <table className="data-table quote-history-table">
                 <thead>
                   <tr>
                     <th>見積番号</th>
@@ -278,6 +371,7 @@ function App() {
                     <th>ステータス</th>
                     <th>経過</th>
                     <th>提出日</th>
+                    <th className="align-right">確認</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -300,6 +394,11 @@ function App() {
                           {quote.status === 'Pending' ? `${quote.waitingDays}日経過` : '対応完了'}
                         </td>
                         <td>{formatDate(quote.createdAt)}</td>
+                        <td className="align-right">
+                          <button className="btn-table-preview" onClick={() => setPreviewQuote(quoteToPreview(quote))}>
+                            プレビュー
+                          </button>
+                        </td>
                       </tr>
                     )
                   })}
@@ -311,11 +410,9 @@ function App() {
           <section className="panel quote-panel">
             <div className="panel-head panel-head-actions">
               <div>
-                <p className="section-kicker">Speed Quote</p>
-                <h2>スピード見積入力</h2>
-                <p className="section-copy">入力後にプレビューボタンで見積書を確認し、必要ならPDF化できます。</p>
+                <h2>見積入力</h2>
               </div>
-              <button className="btn-primary" onClick={() => setIsPreviewOpen(true)}>
+              <button className="btn-primary" onClick={openDraftPreview}>
                 プレビュー
               </button>
             </div>
@@ -350,7 +447,7 @@ function App() {
                       </thead>
                       <tbody>
                         {lineItems.map((row) => {
-                          const item = ITEMS.find((i) => i.id === row.itemId) ?? ITEMS[0]
+                          const item = findItem(row.itemId)
                           const rowTotal = row.unitPrice * row.quantity
                           return (
                             <tr key={row.id}>
@@ -428,7 +525,7 @@ function App() {
                   <div className="summary-row"><span>消費税（10%）</span><strong>{formatYen(tax)}</strong></div>
                   <div className="summary-divider" />
                   <div className="summary-total"><span>合計</span><strong>{formatYen(total)}</strong></div>
-                  <button className="btn-preview-on-card" onClick={() => setIsPreviewOpen(true)}>
+                  <button className="btn-preview-on-card" onClick={openDraftPreview}>
                     見積書を確認
                   </button>
                 </div>
@@ -438,8 +535,8 @@ function App() {
         </main>
       </div>
 
-      {isPreviewOpen && (
-        <div className="modal-overlay" onMouseDown={() => setIsPreviewOpen(false)}>
+      {previewQuote && (
+        <div className="modal-overlay" onMouseDown={() => setPreviewQuote(null)}>
           <div className="modal-window" role="dialog" aria-modal="true" aria-label="見積プレビュー" onMouseDown={(e) => e.stopPropagation()}>
             <div className="modal-bar">
               <div>
@@ -450,13 +547,13 @@ function App() {
                 <button className="btn-secondary" onClick={() => window.print()}>
                   PDF化 / 印刷
                 </button>
-                <button className="btn-secondary" onClick={() => setIsPreviewOpen(false)}>
+                <button className="btn-secondary" onClick={() => setPreviewQuote(null)}>
                   閉じる
                 </button>
               </div>
             </div>
             <div className="paper-shell modal-paper-shell">
-              {quotePreview}
+              <QuotePreview preview={previewQuote} />
             </div>
           </div>
         </div>
