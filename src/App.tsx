@@ -26,6 +26,12 @@ type QuoteLineItem = {
   unitPrice?: number
 }
 
+type InteractionNote = {
+  id: string
+  body: string
+  createdAt: string
+}
+
 type Quote = {
   id: string
   quoteNo: string
@@ -37,6 +43,8 @@ type Quote = {
   waitingDays: number
   memo: string
   lineItems: QuoteLineItem[]
+  updatedAt?: string
+  notes?: InteractionNote[]
 }
 
 type PreviewLineItem = {
@@ -77,6 +85,11 @@ const INITIAL_QUOTES: Quote[] = [
     createdAt: '2026-06-02',
     waitingDays: 11,
     memo: '商品撮影素材のご提供後、下層ページ構成を確定します。',
+    updatedAt: '2026-06-13',
+    notes: [
+      { id: 'note-q041-2', body: '先方より商品写真の差し替え希望あり。素材は6/14共有予定。', createdAt: '2026-06-13T09:30:00.000Z' },
+      { id: 'note-q041-1', body: '見積送付済み。トップページの構成案も合わせて確認依頼。', createdAt: '2026-06-02T06:20:00.000Z' },
+    ],
     lineItems: [
       { itemId: 'site', quantity: 2 },
       { itemId: 'lp', quantity: 1 },
@@ -92,6 +105,10 @@ const INITIAL_QUOTES: Quote[] = [
     createdAt: '2026-05-28',
     waitingDays: 0,
     memo: '公開後2週間の軽微な文言修正を含みます。',
+    updatedAt: '2026-05-30',
+    notes: [
+      { id: 'note-q038-1', body: '成約連絡あり。初回ヒアリング日程を調整中。', createdAt: '2026-05-30T02:15:00.000Z' },
+    ],
     lineItems: [
       { itemId: 'lp', quantity: 2 },
     ],
@@ -106,6 +123,10 @@ const INITIAL_QUOTES: Quote[] = [
     createdAt: '2026-05-23',
     waitingDays: 0,
     memo: '月次レポートと軽微な更新作業を含む6か月分の保守費用です。',
+    updatedAt: '2026-05-25',
+    notes: [
+      { id: 'note-q036-1', body: '請求書送付済み。翌月から月次レポートを開始。', createdAt: '2026-05-25T04:40:00.000Z' },
+    ],
     lineItems: [
       { itemId: 'maintenance', quantity: 6 },
       { itemId: 'seo', quantity: 2 },
@@ -121,6 +142,11 @@ const INITIAL_QUOTES: Quote[] = [
     createdAt: '2026-05-18',
     waitingDays: 26,
     memo: '既存CMSの調査後、必要に応じて実装範囲を再調整します。',
+    updatedAt: '2026-06-08',
+    notes: [
+      { id: 'note-q034-2', body: '再確認メール送付。CMSログイン情報の共有待ち。', createdAt: '2026-06-08T01:10:00.000Z' },
+      { id: 'note-q034-1', body: '既存サイト改修範囲について先方確認中。', createdAt: '2026-05-20T08:00:00.000Z' },
+    ],
     lineItems: [
       { itemId: 'site', quantity: 2 },
       { itemId: 'photo', quantity: 1 },
@@ -149,8 +175,17 @@ const dateFormat = new Intl.DateTimeFormat('ja-JP', {
   day: '2-digit',
 })
 
+const dateTimeFormat = new Intl.DateTimeFormat('ja-JP', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
 const formatYen = (value: number) => yen.format(value)
 const formatDate = (value: string) => dateFormat.format(new Date(value))
+const formatDateTime = (value: string) => dateTimeFormat.format(new Date(value))
 
 const findItem = (itemId: string) => ITEMS.find((item) => item.id === itemId) ?? ITEMS[0]
 const calcSubtotal = (rows: PreviewLineItem[]) => rows.reduce((sum, row) => sum + row.unitPrice * row.quantity, 0)
@@ -161,6 +196,8 @@ const toLocalDateString = (date = new Date()) => {
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
+
+const toLocalDateTimeString = () => new Date().toISOString()
 
 const getNextQuoteNo = (quotes: Quote[]) => {
   const year = new Date().getFullYear()
@@ -174,16 +211,22 @@ const getNextQuoteNo = (quotes: Quote[]) => {
   return `${prefix}${String(maxSequence + 1).padStart(3, '0')}`
 }
 
+const normalizeQuotes = (quotes: Quote[]) => quotes.map((quote) => ({
+  ...quote,
+  updatedAt: quote.updatedAt ?? quote.createdAt,
+  notes: quote.notes ?? [],
+}))
+
 const loadInitialQuotes = () => {
-  if (typeof window === 'undefined') return INITIAL_QUOTES
+  if (typeof window === 'undefined') return normalizeQuotes(INITIAL_QUOTES)
 
   try {
     const stored = window.localStorage.getItem(QUOTES_STORAGE_KEY)
-    if (!stored) return INITIAL_QUOTES
+    if (!stored) return normalizeQuotes(INITIAL_QUOTES)
     const parsed = JSON.parse(stored) as Quote[]
-    return Array.isArray(parsed) ? parsed : INITIAL_QUOTES
+    return Array.isArray(parsed) ? normalizeQuotes(parsed) : normalizeQuotes(INITIAL_QUOTES)
   } catch {
-    return INITIAL_QUOTES
+    return normalizeQuotes(INITIAL_QUOTES)
   }
 }
 
@@ -282,6 +325,8 @@ function App() {
   const [memo, setMemo] = useState('見積有効期限は30日です。要件確定後に最終調整いたします。')
   const [lineItems, setLineItems] = useState<LineItem[]>([newLineItem()])
   const [previewQuote, setPreviewQuote] = useState<PreviewQuote | null>(null)
+  const [noteModalQuoteId, setNoteModalQuoteId] = useState<string | null>(null)
+  const [noteDraft, setNoteDraft] = useState('')
   const [submitMessage, setSubmitMessage] = useState('')
 
   useEffect(() => {
@@ -289,10 +334,12 @@ function App() {
   }, [quotes])
 
   useEffect(() => {
-    if (!previewQuote) return
+    if (!previewQuote && !noteModalQuoteId) return
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setPreviewQuote(null)
+      if (event.key !== 'Escape') return
+      if (noteModalQuoteId) setNoteModalQuoteId(null)
+      else setPreviewQuote(null)
     }
 
     document.body.style.overflow = 'hidden'
@@ -302,7 +349,7 @@ function App() {
       document.body.style.overflow = ''
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [previewQuote])
+  }, [previewQuote, noteModalQuoteId])
 
   const handleLineItemChange = (id: string, field: keyof LineItem, value: string | number) => {
     setLineItems((prev) =>
@@ -342,6 +389,10 @@ function App() {
   const subtotal = useMemo(() => calcSubtotal(draftRows), [draftRows])
   const tax = Math.round(subtotal * 0.1)
   const total = subtotal + tax
+  const activeNoteQuote = useMemo(
+    () => quotes.find((quote) => quote.id === noteModalQuoteId) ?? null,
+    [noteModalQuoteId, quotes],
+  )
   const nextQuoteNo = useMemo(() => getNextQuoteNo(quotes), [quotes])
   const quoteStats = useMemo(() => ({
     pipelineTotal: quotes.reduce((sum, quote) => sum + quote.amount, 0),
@@ -386,10 +437,56 @@ function App() {
         quantity: row.quantity,
         unitPrice: row.unitPrice,
       })),
+      updatedAt: today,
+      notes: [],
     }
 
     setQuotes((prev) => [submittedQuote, ...prev])
     setSubmitMessage(`${nextQuoteNo} を提出済み一覧に追加しました。`)
+  }
+
+  const handleStatusChange = (quoteId: string, status: QuoteStatus) => {
+    const today = toLocalDateString()
+    setQuotes((prev) => prev.map((quote) => (
+      quote.id === quoteId
+        ? { ...quote, status, waitingDays: status === 'Pending' ? quote.waitingDays : 0, updatedAt: today }
+        : quote
+    )))
+  }
+
+  const handleDeleteQuote = (quoteId: string) => {
+    const target = quotes.find((quote) => quote.id === quoteId)
+    if (!target) return
+    if (!window.confirm(`${target.quoteNo} を削除しますか？`)) return
+
+    setQuotes((prev) => prev.filter((quote) => quote.id !== quoteId))
+    if (noteModalQuoteId === quoteId) setNoteModalQuoteId(null)
+    setSubmitMessage(`${target.quoteNo} を削除しました。`)
+  }
+
+  const openNoteModal = (quoteId: string) => {
+    setNoteModalQuoteId(quoteId)
+    setNoteDraft('')
+  }
+
+  const handleAddNote = () => {
+    const body = noteDraft.trim()
+    if (!activeNoteQuote || !body) return
+
+    const now = toLocalDateTimeString()
+    const today = toLocalDateString()
+    const note: InteractionNote = {
+      id: `${activeNoteQuote.id}-note-${Date.now()}`,
+      body,
+      createdAt: now,
+    }
+
+    setQuotes((prev) => prev.map((quote) => (
+      quote.id === activeNoteQuote.id
+        ? { ...quote, notes: [note, ...(quote.notes ?? [])], updatedAt: today }
+        : quote
+    )))
+    setNoteDraft('')
   }
 
   return (
@@ -449,7 +546,8 @@ function App() {
                     <th>ステータス</th>
                     <th>経過</th>
                     <th>提出日</th>
-                    <th className="align-right">確認</th>
+                    <th>更新日</th>
+                    <th className="align-right">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -467,15 +565,38 @@ function App() {
                         <td>{quote.client}</td>
                         <td>{quote.project}</td>
                         <td className="align-right amount">{formatYen(quote.amount)}</td>
-                        <td><StatusBadge status={quote.status} /></td>
+                        <td>
+                          <div className="status-control">
+                            <StatusBadge status={quote.status} />
+                            <select
+                              className="status-select"
+                              value={quote.status}
+                              onChange={(event) => handleStatusChange(quote.id, event.target.value as QuoteStatus)}
+                              aria-label={`${quote.quoteNo} のステータス`}
+                            >
+                              <option value="Pending">返答待ち</option>
+                              <option value="Won">成約</option>
+                              <option value="Invoiced">請求済</option>
+                            </select>
+                          </div>
+                        </td>
                         <td className={needsAttention ? 'danger-text' : undefined}>
                           {quote.status === 'Pending' ? `${quote.waitingDays}日経過` : '対応完了'}
                         </td>
                         <td>{formatDate(quote.createdAt)}</td>
+                        <td>{formatDate(quote.updatedAt ?? quote.createdAt)}</td>
                         <td className="align-right">
-                          <button className="btn-table-preview" onClick={() => setPreviewQuote(quoteToPreview(quote))}>
-                            プレビュー
-                          </button>
+                          <div className="table-actions">
+                            <button className="btn-table-preview" onClick={() => setPreviewQuote(quoteToPreview(quote))}>
+                              プレビュー
+                            </button>
+                            <button className="btn-table-note" onClick={() => openNoteModal(quote.id)}>
+                              メモ{quote.notes?.length ? ` ${quote.notes.length}` : ''}
+                            </button>
+                            <button className="btn-table-danger" onClick={() => handleDeleteQuote(quote.id)}>
+                              削除
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -625,6 +746,74 @@ function App() {
         </main>
       </div>
 
+      {activeNoteQuote && (
+        <div className="modal-overlay" onMouseDown={() => setNoteModalQuoteId(null)}>
+          <div className="modal-window note-modal" role="dialog" aria-modal="true" aria-label="顧客やり取りメモ" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modal-bar">
+              <div>
+                <p className="section-kicker">Client Memo</p>
+                <h2>顧客やり取りメモ</h2>
+                <p className="modal-subtitle">{activeNoteQuote.quoteNo} / {activeNoteQuote.client} / {activeNoteQuote.project}</p>
+              </div>
+              <div className="modal-actions">
+                <button className="btn-secondary" onClick={() => setNoteModalQuoteId(null)}>
+                  閉じる
+                </button>
+              </div>
+            </div>
+
+            <div className="note-modal-body">
+              <div className="note-meta-grid">
+                <div>
+                  <span>ステータス</span>
+                  <strong>{statusLabels[activeNoteQuote.status]}</strong>
+                </div>
+                <div>
+                  <span>提出日</span>
+                  <strong>{formatDate(activeNoteQuote.createdAt)}</strong>
+                </div>
+                <div>
+                  <span>最終更新日</span>
+                  <strong>{formatDate(activeNoteQuote.updatedAt ?? activeNoteQuote.createdAt)}</strong>
+                </div>
+              </div>
+
+              <label className="field note-compose">
+                <span>新しいメモ</span>
+                <textarea
+                  rows={4}
+                  value={noteDraft}
+                  onChange={(event) => setNoteDraft(event.target.value)}
+                  placeholder="例: 先方から金額確認の連絡あり。来週火曜までに再提案予定。"
+                />
+              </label>
+              <div className="note-compose-actions">
+                <button className="btn-primary" onClick={handleAddNote} disabled={!noteDraft.trim()}>
+                  メモを追加
+                </button>
+              </div>
+
+              <div className="note-history-head">
+                <h3>過去のメモ</h3>
+                <span>{activeNoteQuote.notes?.length ?? 0}件</span>
+              </div>
+
+              <div className="note-history-list">
+                {(activeNoteQuote.notes?.length ?? 0) === 0 ? (
+                  <p className="empty-note">まだ顧客やり取りメモはありません。</p>
+                ) : (
+                  activeNoteQuote.notes?.map((note) => (
+                    <article className="note-history-item" key={note.id}>
+                      <time>{formatDateTime(note.createdAt)}</time>
+                      <p>{note.body}</p>
+                    </article>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {previewQuote && (
         <div className="modal-overlay" onMouseDown={() => setPreviewQuote(null)}>
           <div className="modal-window" role="dialog" aria-modal="true" aria-label="見積プレビュー" onMouseDown={(e) => e.stopPropagation()}>
