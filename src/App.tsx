@@ -272,11 +272,11 @@ function App() {
                       <table className="form-items-table">
                         <thead>
                           <tr>
-                            <th style={{ width: '36%' }}>品目</th>
-                            <th style={{ width: '22%' }}>単価</th>
-                            <th style={{ width: '14%' }}>数量</th>
-                            <th className="align-right" style={{ width: '20%' }}>金額</th>
-                            <th style={{ width: '8%' }}></th>
+                            <th style={{ width: 270 }}>品目</th>
+                            <th style={{ width: 220 }}>単価</th>
+                            <th style={{ width: 90 }}>数量</th>
+                            <th className="align-right" style={{ width: 140 }}>金額</th>
+                            <th style={{ width: 56 }}></th>
                           </tr>
                         </thead>
                         <tbody>
