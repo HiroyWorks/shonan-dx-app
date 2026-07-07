@@ -712,9 +712,26 @@ function App() {
                       </tbody>
                     </table>
                   </div>
-                  <button className="btn-secondary btn-add-row" onClick={addRow}>
-                    + 明細を追加
-                  </button>
+                  <div className="line-item-footer">
+                    <button className="btn-secondary btn-add-row" onClick={addRow}>
+                      + 明細を追加
+                    </button>
+                    <div className="inline-summary-card">
+                      <div className="inline-summary-head">
+                        <span>リアルタイム集計</span>
+                        <strong>{formatYen(total)}</strong>
+                      </div>
+                      <div className="inline-summary-breakdown">
+                        <span>明細 {lineItems.length}</span>
+                        <span>小計 {formatYen(subtotal)}</span>
+                        <span>税 {formatYen(tax)}</span>
+                      </div>
+                      <div className="inline-summary-actions">
+                        <button className="btn-secondary" onClick={openDraftPreview}>見積書を確認</button>
+                        <button className="btn-primary" onClick={handleSubmitQuote}>提出する</button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <label className="field field-textarea">
@@ -723,24 +740,6 @@ function App() {
                 </label>
               </div>
 
-              <aside className="summary-column">
-                <div className="summary-card">
-                  <p className="summary-kicker">リアルタイム集計</p>
-                  <div className="summary-row"><span>明細数</span><strong>{lineItems.length}</strong></div>
-                  <div className="summary-row"><span>小計</span><strong>{formatYen(subtotal)}</strong></div>
-                  <div className="summary-row"><span>消費税（10%）</span><strong>{formatYen(tax)}</strong></div>
-                  <div className="summary-divider" />
-                  <div className="summary-total"><span>合計</span><strong>{formatYen(total)}</strong></div>
-                  <div className="summary-actions">
-                    <button className="btn-preview-on-card" onClick={openDraftPreview}>
-                      見積書を確認
-                    </button>
-                    <button className="btn-submit-on-card" onClick={handleSubmitQuote}>
-                      提出する
-                    </button>
-                  </div>
-                </div>
-              </aside>
             </div>
           </section>
         </main>
