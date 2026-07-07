@@ -32,20 +32,20 @@ type Quote = {
 }
 
 const ITEMS: Item[] = [
-  { id: 'site', name: 'Website build', category: 'Production', unitPrice: 180000, unit: 'project' },
-  { id: 'lp', name: 'Landing page', category: 'Production', unitPrice: 120000, unit: 'project' },
-  { id: 'maintenance', name: 'Maintenance', category: 'Monthly', unitPrice: 25000, unit: 'month' },
-  { id: 'seo', name: 'SEO article', category: 'Content', unitPrice: 15000, unit: 'article' },
-  { id: 'support', name: 'Support call', category: 'Support', unitPrice: 12000, unit: 'hour' },
-  { id: 'photo', name: 'Photo direction', category: 'On-site', unitPrice: 80000, unit: 'session' },
+  { id: 'site', name: 'Webサイト制作', category: '制作', unitPrice: 180000, unit: '式' },
+  { id: 'lp', name: 'ランディングページ制作', category: '制作', unitPrice: 120000, unit: '式' },
+  { id: 'maintenance', name: '保守運用', category: '月額', unitPrice: 25000, unit: '月' },
+  { id: 'seo', name: 'SEO記事作成', category: 'コンテンツ', unitPrice: 15000, unit: '本' },
+  { id: 'support', name: '操作レクチャー', category: 'サポート', unitPrice: 12000, unit: '時間' },
+  { id: 'photo', name: '撮影ディレクション', category: '現場', unitPrice: 80000, unit: '回' },
 ]
 
 const QUOTES: Quote[] = [
   {
     id: 'Q-2026-041',
     quoteNo: 'Q-2026-041',
-    client: 'Shonan Bakery',
-    project: 'New product site renewal',
+    client: '湘南ベーカリー',
+    project: '新商品サイトリニューアル',
     amount: 528000,
     status: 'Pending',
     createdAt: '2026-06-02',
@@ -54,8 +54,8 @@ const QUOTES: Quote[] = [
   {
     id: 'Q-2026-038',
     quoteNo: 'Q-2026-038',
-    client: 'Fujisawa Clinic',
-    project: 'Recruitment LP',
+    client: '藤沢クリニック',
+    project: '採用LP制作',
     amount: 264000,
     status: 'Won',
     createdAt: '2026-05-28',
@@ -64,8 +64,8 @@ const QUOTES: Quote[] = [
   {
     id: 'Q-2026-036',
     quoteNo: 'Q-2026-036',
-    client: 'Kamakura Construction',
-    project: 'Monthly maintenance',
+    client: '鎌倉工務店',
+    project: '定期保守プラン',
     amount: 198000,
     status: 'Invoiced',
     createdAt: '2026-05-23',
@@ -74,14 +74,20 @@ const QUOTES: Quote[] = [
   {
     id: 'Q-2026-034',
     quoteNo: 'Q-2026-034',
-    client: 'Chigasaki Commerce',
-    project: 'Corporate revamp',
+    client: '茅ヶ崎商事',
+    project: 'コーポレートサイト改修',
     amount: 748000,
     status: 'Pending',
     createdAt: '2026-05-18',
     waitingDays: 26,
   },
 ]
+
+const statusLabels: Record<QuoteStatus, string> = {
+  Pending: '返答待ち',
+  Won: '成約',
+  Invoiced: '請求済',
+}
 
 const yen = new Intl.NumberFormat('ja-JP', {
   style: 'currency',
@@ -111,15 +117,13 @@ function StatusBadge({ status }: { status: QuoteStatus }) {
     Invoiced: 'status-badge status-done',
   }
 
-  return <span className={className[status]}>{status}</span>
+  return <span className={className[status]}>{statusLabels[status]}</span>
 }
 
 function App() {
-  const [clientName, setClientName] = useState('Minato Planning Co.')
-  const [projectName, setProjectName] = useState('Corporate site estimate')
-  const [memo, setMemo] = useState(
-    'Estimate is valid for 30 days. Final adjustments will be made after requirements are fixed.',
-  )
+  const [clientName, setClientName] = useState('株式会社みなと企画')
+  const [projectName, setProjectName] = useState('コーポレートサイト見積')
+  const [memo, setMemo] = useState('見積有効期限は30日です。要件確定後に最終調整いたします。')
   const [lineItems, setLineItems] = useState<LineItem[]>([newLineItem()])
 
   const handleLineItemChange = (id: string, field: keyof LineItem, value: string | number) => {
@@ -134,12 +138,15 @@ function App() {
       }),
     )
   }
+
   const addRow = () => {
     setLineItems((prev) => [...prev, newLineItem()])
   }
+
   const removeRow = (id: string) => {
     setLineItems((prev) => (prev.length > 1 ? prev.filter((row) => row.id !== id) : prev))
   }
+
   const subtotal = useMemo(
     () => lineItems.reduce((sum, row) => sum + row.unitPrice * row.quantity, 0),
     [lineItems],
@@ -153,32 +160,32 @@ function App() {
         <header className="app-header">
           <div className="header-brand">
             <span className="brand-dot" />
-            <h1>Shonan Estimate</h1>
-            <span className="brand-tag">Estimate management</span>
+            <h1>Estimate management</h1>
+            <span className="brand-tag">見積管理アプリ</span>
           </div>
         </header>
 
         <section className="kpi-section">
           <div className="kpi-grid">
             <div className="kpi-card">
-              <span className="kpi-label">Pipeline total</span>
+              <span className="kpi-label">見積総額</span>
               <strong className="kpi-value">{formatYen(1738000)}</strong>
-              <span className="kpi-hint">Submitted estimate total</span>
+              <span className="kpi-hint">提出済み見積の合計</span>
             </div>
             <div className="kpi-card">
-              <span className="kpi-label">Won amount</span>
+              <span className="kpi-label">成約金額</span>
               <strong className="kpi-value value-success">{formatYen(264000)}</strong>
-              <span className="kpi-hint">Confirmed projects</span>
+              <span className="kpi-hint">成約済み案件の合計</span>
             </div>
             <div className="kpi-card">
-              <span className="kpi-label">Invoiced</span>
+              <span className="kpi-label">請求済み</span>
               <strong className="kpi-value value-info">{formatYen(198000)}</strong>
-              <span className="kpi-hint">Already invoiced</span>
+              <span className="kpi-hint">請求処理済みの金額</span>
             </div>
             <div className="kpi-card kpi-card-alert">
-              <span className="kpi-label">Needs follow-up</span>
+              <span className="kpi-label">要フォロー</span>
               <strong className="kpi-value value-danger">2</strong>
-              <span className="kpi-hint">Pending over 10 days</span>
+              <span className="kpi-hint">10日以上返答待ちの案件</span>
             </div>
           </div>
         </section>
@@ -189,22 +196,22 @@ function App() {
               <div className="panel-head">
                 <div>
                   <p className="section-kicker">Dashboard</p>
-                  <h2>Submitted quotes</h2>
+                  <h2>提出済みの見積一覧</h2>
                 </div>
-                <p className="section-copy">Status badges make the list easy to scan.</p>
+                <p className="section-copy">ステータスと経過日数を一覧で確認できます。</p>
               </div>
 
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Quote No.</th>
-                      <th>Client</th>
-                      <th>Project</th>
-                      <th className="align-right">Amount</th>
-                      <th>Status</th>
-                      <th>Waiting</th>
-                      <th>Date</th>
+                      <th>見積番号</th>
+                      <th>取引先</th>
+                      <th>案件名</th>
+                      <th className="align-right">金額</th>
+                      <th>ステータス</th>
+                      <th>経過</th>
+                      <th>提出日</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -224,7 +231,7 @@ function App() {
                           <td className="align-right amount">{formatYen(quote.amount)}</td>
                           <td><StatusBadge status={quote.status} /></td>
                           <td className={needsAttention ? 'danger-text' : undefined}>
-                            {quote.status === 'Pending' ? `${quote.waitingDays} days` : 'Done'}
+                            {quote.status === 'Pending' ? `${quote.waitingDays}日経過` : '対応完了'}
                           </td>
                           <td>{formatDate(quote.createdAt)}</td>
                         </tr>
@@ -239,38 +246,36 @@ function App() {
               <div className="panel-head">
                 <div>
                   <p className="section-kicker">Speed Quote</p>
-                  <h2>Fast estimate entry</h2>
+                  <h2>スピード見積入力</h2>
                 </div>
-                <p className="section-copy">Add multiple line items. Changing item, price, or quantity updates the total and preview immediately.</p>
+                <p className="section-copy">品目、単価、数量を変更すると、合計金額とプレビューに即時反映されます。</p>
               </div>
 
               <div className="form-grid">
                 <div className="form-column">
-                  {/* 繧ｯ繝ｩ繧､繧｢繝ｳ繝医・繝励Ο繧ｸ繧ｧ繧ｯ繝・*/}
                   <div className="field-grid">
                     <label className="field">
-                      <span>Client</span>
+                      <span>顧客名</span>
                       <input value={clientName} onChange={(e) => setClientName(e.target.value)} />
                     </label>
                     <label className="field">
-                      <span>Project</span>
+                      <span>案件名</span>
                       <input value={projectName} onChange={(e) => setProjectName(e.target.value)} />
                     </label>
                   </div>
 
-                  {/* Form section */}
                   <div>
                     <span className="field" style={{ marginBottom: 8, display: 'block' }}>
-                      <span>Line items</span>
+                      <span>見積明細</span>
                     </span>
                     <div className="form-table-wrap">
                       <table className="form-items-table">
                         <thead>
                           <tr>
-                            <th style={{ width: '36%' }}>Item</th>
-                            <th style={{ width: '22%' }}>Unit price</th>
-                            <th style={{ width: '14%' }}>Qty</th>
-                            <th className="align-right" style={{ width: '20%' }}>Amount</th>
+                            <th style={{ width: '36%' }}>品目</th>
+                            <th style={{ width: '22%' }}>単価</th>
+                            <th style={{ width: '14%' }}>数量</th>
+                            <th className="align-right" style={{ width: '20%' }}>金額</th>
                             <th style={{ width: '8%' }}></th>
                           </tr>
                         </thead>
@@ -302,7 +307,7 @@ function App() {
                                         handleLineItemChange(row.id, 'unitPrice', Math.max(0, Number(e.target.value) || 0))
                                       }
                                     />
-                                    <span className="unit-label">{item.unit}</span>
+                                    <span className="unit-label">円/{item.unit}</span>
                                   </div>
                                 </td>
                                 <td>
@@ -323,7 +328,7 @@ function App() {
                                   <button
                                     className="btn-table-delete"
                                     onClick={() => removeRow(row.id)}
-                                    title="Delete row"
+                                    title="行を削除"
                                     disabled={lineItems.length === 1}
                                   >
                                     x
@@ -336,25 +341,24 @@ function App() {
                       </table>
                     </div>
                     <button className="btn-secondary btn-add-row" onClick={addRow}>
-                      + Add line item
+                      + 明細を追加
                     </button>
                   </div>
 
-                  {/* Form section */}
                   <label className="field field-textarea">
-                    <span>Memo</span>
+                    <span>メモ</span>
                     <textarea rows={4} value={memo} onChange={(e) => setMemo(e.target.value)} />
                   </label>
                 </div>
 
                 <aside className="summary-column">
                   <div className="summary-card">
-                    <p className="summary-kicker">Live Summary</p>
-                    <div className="summary-row"><span>Lines</span><strong>{lineItems.length}</strong></div>
-                    <div className="summary-row"><span>Subtotal</span><strong>{formatYen(subtotal)}</strong></div>
-                    <div className="summary-row"><span>Tax (10%)</span><strong>{formatYen(tax)}</strong></div>
+                    <p className="summary-kicker">リアルタイム集計</p>
+                    <div className="summary-row"><span>明細数</span><strong>{lineItems.length}</strong></div>
+                    <div className="summary-row"><span>小計</span><strong>{formatYen(subtotal)}</strong></div>
+                    <div className="summary-row"><span>消費税（10%）</span><strong>{formatYen(tax)}</strong></div>
                     <div className="summary-divider" />
-                    <div className="summary-total"><span>Total</span><strong>{formatYen(total)}</strong></div>
+                    <div className="summary-total"><span>合計</span><strong>{formatYen(total)}</strong></div>
                   </div>
                 </aside>
               </div>
@@ -366,7 +370,7 @@ function App() {
               <div className="panel-head">
                 <div>
                   <p className="section-kicker">Preview</p>
-                  <h2>A4 quote preview</h2>
+                  <h2>A4見積プレビュー</h2>
                 </div>
               </div>
 
@@ -375,20 +379,20 @@ function App() {
                   <div className="paper-header">
                     <div>
                       <p className="paper-kicker">Estimate</p>
-                      <h3>Quote</h3>
+                      <h3>見積書</h3>
                       <p className="paper-sub">No. Q-2026-045</p>
                     </div>
-                    <div className="paper-date"><span>Issued</span><strong>2026/06/25</strong></div>
+                    <div className="paper-date"><span>発行日</span><strong>2026/06/25</strong></div>
                   </div>
 
                   <div className="paper-meta">
-                    <div className="paper-box"><p className="paper-small">To</p><strong>{clientName}</strong><span>{projectName}</span></div>
-                    <div className="paper-box"><p className="paper-small">From</p><strong>Freelancer</strong><span>Shonan area, Kanagawa</span><span>Tel. 000-0000-0000</span></div>
+                    <div className="paper-box"><p className="paper-small">宛先</p><strong>{clientName}</strong><span>{projectName}</span></div>
+                    <div className="paper-box"><p className="paper-small">差出人</p><strong>個人事業主</strong><span>神奈川県湘南エリア</span><span>Tel. 000-0000-0000</span></div>
                   </div>
 
                   <div className="paper-table-wrap">
                     <table className="paper-table">
-                      <thead><tr><th>Item</th><th className="align-right">Unit price</th><th className="align-right">Qty</th><th className="align-right">Amount</th></tr></thead>
+                      <thead><tr><th>品目</th><th className="align-right">単価</th><th className="align-right">数量</th><th className="align-right">金額</th></tr></thead>
                       <tbody>
                         {lineItems.map((row) => {
                           const item = ITEMS.find((i) => i.id === row.itemId) ?? ITEMS[0]
@@ -409,12 +413,12 @@ function App() {
                   </div>
 
                   <div className="paper-bottom">
-                    <div className="paper-note"><p className="paper-small">Memo</p><p>{memo}</p></div>
+                    <div className="paper-note"><p className="paper-small">備考</p><p>{memo}</p></div>
                     <div className="paper-totals">
-                      <div><span>Subtotal</span><strong>{formatYen(subtotal)}</strong></div>
-                      <div><span>Tax (10%)</span><strong>{formatYen(tax)}</strong></div>
+                      <div><span>小計</span><strong>{formatYen(subtotal)}</strong></div>
+                      <div><span>消費税（10%）</span><strong>{formatYen(tax)}</strong></div>
                       <div className="total-line" />
-                      <div className="grand-total"><span>Total</span><strong>{formatYen(total)}</strong></div>
+                      <div className="grand-total"><span>合計</span><strong>{formatYen(total)}</strong></div>
                     </div>
                   </div>
                 </div>
