@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build --base=/shonan-dx-app/",
+    "build": "tsc -b && vite build --base=/",
     "lint": "eslint .",
-    "preview": "vite preview --base=/shonan-dx-app/"
+    "preview": "vite preview --base=/"
   },
   "dependencies": {
     "react": "^19.2.6",
