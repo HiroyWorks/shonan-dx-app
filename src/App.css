@@ -131,3 +131,143 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Wider dashboard table layout */
+.app-shell {
+  padding-left: 18px;
+  padding-right: 18px;
+}
+
+.topbar,
+.app-layout {
+  width: min(1840px, 100%);
+}
+
+.app-layout {
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.dashboard-panel .data-table {
+  min-width: 1280px;
+  table-layout: fixed;
+}
+
+.dashboard-panel th,
+.dashboard-panel td {
+  padding: 13px 12px;
+  font-size: .88rem;
+}
+
+.dashboard-panel th:nth-child(1),
+.dashboard-panel td:nth-child(1) { width: 130px; }
+.dashboard-panel th:nth-child(2),
+.dashboard-panel td:nth-child(2) { width: 160px; }
+.dashboard-panel th:nth-child(3),
+.dashboard-panel td:nth-child(3) { width: 210px; }
+.dashboard-panel th:nth-child(4),
+.dashboard-panel td:nth-child(4) { width: 120px; }
+.dashboard-panel th:nth-child(5),
+.dashboard-panel td:nth-child(5) { width: 150px; }
+.dashboard-panel th:nth-child(6),
+.dashboard-panel td:nth-child(6) { width: 105px; }
+.dashboard-panel th:nth-child(7),
+.dashboard-panel td:nth-child(7) { width: 110px; }
+.dashboard-panel th:nth-child(8),
+.dashboard-panel td:nth-child(8) { width: 110px; }
+.dashboard-panel th:nth-child(9),
+.dashboard-panel td:nth-child(9) { width: 285px; }
+
+.dashboard-panel td:nth-child(2),
+.dashboard-panel td:nth-child(3) {
+  overflow-wrap: anywhere;
+}
+
+.dashboard-panel .table-actions {
+  min-width: 0;
+  gap: 6px;
+}
+
+.dashboard-panel .table-actions button {
+  padding: 7px 9px;
+  font-size: .74rem;
+}
+
+.dashboard-panel .compact-select {
+  width: 116px;
+  min-width: 116px;
+}
+
+@media (min-width: 1500px) {
+  .dashboard-panel .data-table {
+    min-width: 0;
+  }
+}
+
+/* Make the quote dashboard fit inside the page instead of clipping */
+.dashboard-panel .data-table {
+  width: 100%;
+  min-width: 0 !important;
+  table-layout: fixed;
+}
+
+.dashboard-panel th,
+.dashboard-panel td {
+  padding: 11px 9px;
+  font-size: .84rem;
+  line-height: 1.45;
+}
+
+.dashboard-panel th:nth-child(1),
+.dashboard-panel td:nth-child(1) { width: 10%; }
+.dashboard-panel th:nth-child(2),
+.dashboard-panel td:nth-child(2) { width: 12%; }
+.dashboard-panel th:nth-child(3),
+.dashboard-panel td:nth-child(3) { width: 15%; }
+.dashboard-panel th:nth-child(4),
+.dashboard-panel td:nth-child(4) { width: 10%; }
+.dashboard-panel th:nth-child(5),
+.dashboard-panel td:nth-child(5) { width: 11%; }
+.dashboard-panel th:nth-child(6),
+.dashboard-panel td:nth-child(6) { width: 8%; }
+.dashboard-panel th:nth-child(7),
+.dashboard-panel td:nth-child(7) { width: 9%; }
+.dashboard-panel th:nth-child(8),
+.dashboard-panel td:nth-child(8) { width: 9%; }
+.dashboard-panel th:nth-child(9),
+.dashboard-panel td:nth-child(9) { width: 16%; }
+
+.dashboard-panel td {
+  overflow-wrap: anywhere;
+}
+
+.dashboard-panel .amount,
+.dashboard-panel .danger-text {
+  white-space: normal;
+}
+
+.dashboard-panel .badge {
+  padding: 5px 8px;
+  font-size: .72rem;
+}
+
+.dashboard-panel .compact-select {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 8px;
+  font-size: .76rem;
+}
+
+.dashboard-panel .table-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+  gap: 5px;
+}
+
+.dashboard-panel .table-actions button {
+  width: 100%;
+  padding: 6px 5px;
+  font-size: .7rem;
+  text-align: center;
+}
