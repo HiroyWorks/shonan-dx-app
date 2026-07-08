@@ -1,8 +1,10 @@
 
-import { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import './App.css'
 import { isSupabaseConfigured, signInWithGoogle, signOut, supabase } from './lib/supabase'
+
+void React
 
 type QuoteStatus = 'Pending' | 'Won' | 'Invoiced'
 type Role = 'admin' | 'member'
