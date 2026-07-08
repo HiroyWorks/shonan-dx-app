@@ -314,7 +314,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
+      <header className="topbar" data-ui-version="notion-clean-20260708">
         <div><p className="eyebrow">Estimate management</p><h1>見積管理・作成アプリ</h1></div>
         <div className="auth-card"><span className={isSupabaseConfigured ? 'sync-dot active' : 'sync-dot'} /><div><strong>{org.company} / {org.name}</strong><span>{user.name} / {user.role === 'admin' ? '管理者' : '担当者'} ・ {isSupabaseConfigured ? session?.user.email ?? 'Google未ログイン' : 'ローカルモード'}</span></div>{isSupabaseConfigured ? session ? <button className="btn ghost" onClick={() => void signOut()}>ログアウト</button> : <button className="btn primary" onClick={() => void signInWithGoogle()}>Googleでログイン</button> : null}</div>
       </header>
