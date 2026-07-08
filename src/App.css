@@ -571,3 +571,198 @@ td {
     flex: 1 1 180px;
   }
 }
+
+/* Print/PDF layout: print only the document paper, not the app UI. */
+@page {
+  size: A4 portrait;
+  margin: 12mm;
+}
+
+@media print {
+  html,
+  body,
+  #root {
+    width: auto !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .app-shell {
+    display: block !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  .app-shell > :not(.modal-overlay) {
+    display: none !important;
+  }
+
+  .modal-overlay {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    width: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .modal-window {
+    display: block !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+
+  .modal-head {
+    display: none !important;
+  }
+
+  .paper-wrap {
+    display: block !important;
+    width: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  .paper {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    color: #111827 !important;
+    font-size: 10pt;
+    line-height: 1.45;
+  }
+
+  .paper-header,
+  .paper-meta,
+  .paper-bottom,
+  .paper-date,
+  .paper-box,
+  .paper-note,
+  .paper-totals {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .paper-header {
+    display: grid !important;
+    grid-template-columns: 1fr auto !important;
+    gap: 10mm !important;
+    padding-bottom: 7mm !important;
+    border-bottom: 1px solid #d1d5db !important;
+  }
+
+  .paper h2 {
+    margin: 2mm 0 0 !important;
+    font-size: 24pt !important;
+    line-height: 1.15 !important;
+  }
+
+  .paper-date,
+  .paper-box,
+  .paper-note,
+  .paper-totals {
+    border: 1px solid #d1d5db !important;
+    border-radius: 4mm !important;
+    background: #ffffff !important;
+    padding: 4mm !important;
+  }
+
+  .paper-meta {
+    display: grid !important;
+    grid-template-columns: 1.08fr .92fr !important;
+    gap: 5mm !important;
+    margin-top: 6mm !important;
+  }
+
+  .paper-table {
+    width: 100% !important;
+    margin-top: 7mm !important;
+    border: 1px solid #d1d5db !important;
+    border-radius: 0 !important;
+    border-collapse: collapse !important;
+    overflow: visible !important;
+    page-break-inside: auto;
+  }
+
+  .paper-table thead {
+    display: table-header-group;
+  }
+
+  .paper-table tbody {
+    display: table-row-group;
+  }
+
+  .paper-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .paper-table th,
+  .paper-table td {
+    padding: 3mm 3.2mm !important;
+    border-bottom: 1px solid #e5e7eb !important;
+    font-size: 9.2pt !important;
+    line-height: 1.35 !important;
+  }
+
+  .paper-table th {
+    background: #f8fafc !important;
+    color: #475569 !important;
+    letter-spacing: .04em !important;
+  }
+
+  .paper-table td span {
+    font-size: 8pt !important;
+  }
+
+  .paper-bottom {
+    display: grid !important;
+    grid-template-columns: 1fr 64mm !important;
+    gap: 5mm !important;
+    margin-top: 7mm !important;
+  }
+
+  .paper-totals div {
+    padding: 1.8mm 0 !important;
+  }
+
+  .paper-grand strong {
+    color: #111827 !important;
+    font-size: 15pt !important;
+  }
+
+  .tax-chip {
+    border-color: #cbd5e1 !important;
+    background: #ffffff !important;
+    color: #334155 !important;
+    padding: 1mm 2mm !important;
+  }
+}
