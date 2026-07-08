@@ -1,19 +1,20 @@
-# Estimate management
+﻿# Estimate management
 
-個人事業主向けの見積管理・作成フロントエンドです。Vite + TypeScript + React で構成しています。
+個人事業主・小規模法人向けの見積管理フロントエンドです。Vite + TypeScript + React で構成しています。
 
-## 主な機能
+## 実装済み機能
 
-- 見積明細の入力
-- 品目マスタ選択による単価の自動反映
-- 数量・単価変更時のリアルタイム集計
-- 見積プレビュー表示
-- PDF化 / 印刷
-- 提出済み見積一覧
-- 見積の提出、削除
-- ステータス更新（返答待ち / 成約 / 請求済）
+- 顧客マスタの追加・編集・削除
+- 品目マスタの追加・編集・削除
+- 見積の提出、編集、複製、削除
+- 見積番号ルール、消費税率、Free/Proプラン設定
+- 検索、ステータス別フィルタ、並び替え
 - 顧客やり取りメモの履歴管理
-- localStorage による仮保存
+- 見積書プレビュー、PDF化/印刷
+- 見積から請求書への変換
+- 会社、組織、ユーザー、ロールのローカル切り替え
+- Supabase Google認証の接続準備
+- Supabase RLS前提のDBスキーマ
 
 ## 開発コマンド
 
@@ -24,11 +25,24 @@ npm run lint
 npm run build
 ```
 
-## データ保存について
+## Supabase設定
 
-現在はDB接続前の仮実装として、提出済み見積・ステータス・顧客メモをブラウザの localStorage に保存しています。
-DB化する場合は、`src/App.tsx` の `quotes` state 更新処理をAPI保存処理に置き換える想定です。
+1. Supabaseでプロジェクトを作成します。
+2. `supabase/schema.sql` をSQL Editorで実行します。
+3. `.env.example` を参考に `.env.local` を作成します。
+4. Supabase AuthでGoogle providerを有効化し、Google CloudのOAuth Client ID/Secretを設定します。
+5. Site URLとRedirect URLにローカルURL、GitHub Pages URL、本番URLを追加します。
+
+```env
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-publishable-or-anon-key
+VITE_APP_FREE_QUOTE_LIMIT=20
+```
+
+## データモデル方針
+
+基本階層は `会社 -> 組織 -> ユーザー -> ロール` です。見積、顧客、品目、請求書は組織に紐づき、RLSで所属組織以外を参照できない設計にしています。
 
 ## 公開
 
-GitHub Pages にデプロイします。`main` ブランチへ push すると `.github/workflows/deploy.yml` がビルドと公開を実行します。
+`main` ブランチへpushするとGitHub ActionsでGitHub Pagesへデプロイされます。
