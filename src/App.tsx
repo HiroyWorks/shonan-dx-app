@@ -10,6 +10,7 @@ type QuoteStatus = 'Pending' | 'Won' | 'Invoiced'
 type Role = 'admin' | 'member'
 type Plan = 'free' | 'pro'
 type SortKey = 'createdAt' | 'updatedAt' | 'amount' | 'quoteNo'
+type Page = 'dashboard' | 'quote' | 'invoices' | 'customers' | 'items' | 'settings'
 type Org = { id: string; company: string; name: string }
 type User = { id: string; name: string; email: string; role: Role; orgId: string }
 type Customer = { id: string; orgId: string; name: string; contact: string; email: string; memo: string }
@@ -54,6 +55,14 @@ const INVOICES: Invoice[] = [{ id: 'inv-001', orgId: 'org-main', invoiceNo: 'INV
 const FREE_LIMIT = Number(import.meta.env.VITE_APP_FREE_QUOTE_LIMIT ?? 20)
 const KEY = 'estimate-management-v3'
 const statusText: Record<QuoteStatus, string> = { Pending: '返答待ち', Won: '成約', Invoiced: '請求済' }
+const navItems: { page: Page; label: string; description: string }[] = [
+  { page: 'dashboard', label: '見積一覧', description: '検索・ステータス管理' },
+  { page: 'quote', label: '見積作成', description: '新規・編集入力' },
+  { page: 'invoices', label: '請求書', description: '変換済み書類' },
+  { page: 'customers', label: '顧客マスタ', description: '取引先管理' },
+  { page: 'items', label: '品目マスタ', description: '単価・単位管理' },
+  { page: 'settings', label: '設定', description: '組織・番号・税率' },
+]
 const statusList: QuoteStatus[] = ['Pending', 'Won', 'Invoiced']
 const yen = new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 })
 const dateFmt = new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })
@@ -127,6 +136,7 @@ function App() {
   const [noteQuoteId, setNoteQuoteId] = useState<string | null>(null)
   const [noteDraft, setNoteDraft] = useState('')
   const [message, setMessage] = useState('')
+  const [activePage, setActivePage] = useState<Page>('dashboard')
 
   const org = ORGS.find((candidate) => candidate.id === orgId) ?? ORGS[0]
   const user = USERS.find((candidate) => candidate.id === userId) ?? USERS[0]
@@ -229,6 +239,7 @@ function App() {
     setMemo(quote.memo)
     setLines(quote.lines)
     setEditingQuote(quote.id)
+    setActivePage('quote')
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
   }
   const duplicateQuote = (quote: Quote) => {
@@ -237,6 +248,7 @@ function App() {
     setMemo(quote.memo)
     setLines(quote.lines.map((line) => ({ ...line, id: id('line') })))
     setEditingQuote(null)
+    setActivePage('quote')
     setMessage(`${quote.quoteNo} を複製して入力フォームへ展開しました。`)
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
   }
@@ -304,27 +316,56 @@ function App() {
     <div className="app-shell">
       <header className="topbar">
         <div><p className="eyebrow">Estimate management</p><h1>見積管理・作成アプリ</h1><p>会社、組織、ユーザー、ロールで参照範囲を分けるSaaS型の業務画面です。</p></div>
-        <div className="auth-card"><span className={isSupabaseConfigured ? 'sync-dot active' : 'sync-dot'} /><div><strong>{isSupabaseConfigured ? 'Supabase接続準備済み' : 'ローカルモード'}</strong><span>{session?.user.email ?? '環境変数を入れるとGoogle認証が有効になります'}</span></div>{isSupabaseConfigured ? session ? <button className="btn ghost" onClick={() => void signOut()}>ログアウト</button> : <button className="btn primary" onClick={() => void signInWithGoogle()}>Googleでログイン</button> : null}</div>
+        <div className="auth-card"><span className={isSupabaseConfigured ? 'sync-dot active' : 'sync-dot'} /><div><strong>{org.company} / {org.name}</strong><span>{user.name} / {user.role === 'admin' ? '管理者' : '担当者'} ・ {isSupabaseConfigured ? session?.user.email ?? 'Google未ログイン' : 'ローカルモード'}</span></div>{isSupabaseConfigured ? session ? <button className="btn ghost" onClick={() => void signOut()}>ログアウト</button> : <button className="btn primary" onClick={() => void signInWithGoogle()}>Googleでログイン</button> : null}</div>
       </header>
-      <section className="workspace-panel"><label><span>会社 / 組織</span><select value={orgId} onChange={(event) => changeOrganization(event.target.value)}>{ORGS.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.company} / {candidate.name}</option>)}</select></label><label><span>ユーザー / ロール</span><select value={userId} onChange={(event) => setUserId(event.target.value)}>{USERS.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} / {candidate.role === 'admin' ? '管理者' : '担当者'}</option>)}</select></label><div className="workspace-meta"><strong>{org.company}</strong><span>{org.name} のデータだけを表示中</span></div></section>
-      <section className="kpi-grid"><div className="kpi-card"><span>見積総額</span><strong>{money(stats.total)}</strong><small>表示中組織の全見積</small></div><div className="kpi-card"><span>成約金額</span><strong>{money(stats.won)}</strong><small>ステータス成約のみ</small></div><div className="kpi-card"><span>請求書</span><strong>{stats.invoices}件</strong><small>見積から変換済み</small></div><div className="kpi-card alert"><span>要フォロー</span><strong>{stats.follow}件</strong><small>10日以上の返答待ち</small></div></section>
+      <div className="app-layout">
+        <aside className="sidebar-nav" aria-label="メインメニュー">
+          {navItems.map((item) => (
+            <button key={item.page} className={activePage === item.page ? 'nav-item active' : 'nav-item'} onClick={() => setActivePage(item.page)}>
+              <strong>{item.label}</strong>
+              <span>{item.description}</span>
+            </button>
+          ))}
+        </aside>
+        <div className="page-content">
       {message && <div className="message">{message}</div>}
       <main className="main-stack">
+
+        {activePage === 'dashboard' && <>
+<section className="kpi-grid"><div className="kpi-card"><span>見積総額</span><strong>{money(stats.total)}</strong><small>表示中組織の全見積</small></div><div className="kpi-card"><span>成約金額</span><strong>{money(stats.won)}</strong><small>ステータス成約のみ</small></div><div className="kpi-card"><span>請求書</span><strong>{stats.invoices}件</strong><small>見積から変換済み</small></div><div className="kpi-card alert"><span>要フォロー</span><strong>{stats.follow}件</strong><small>10日以上の返答待ち</small></div></section>
         <section className="panel dashboard-panel">
           <div className="panel-head"><div><p className="eyebrow">Dashboard</p><h2>提出済みの見積一覧</h2></div><div className="filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="見積番号・顧客・案件で検索" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'All' | QuoteStatus)}><option value="All">すべてのステータス</option>{statusList.map((status) => <option key={status} value={status}>{statusText[status]}</option>)}</select><select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}><option value="createdAt">提出日順</option><option value="updatedAt">更新日順</option><option value="amount">金額順</option><option value="quoteNo">見積番号順</option></select></div></div>
           <div className="table-wrap"><table className="data-table"><thead><tr><th>見積番号</th><th>取引先</th><th>案件名</th><th>金額</th><th>ステータス</th><th>経過</th><th>提出日</th><th>更新日</th><th>操作</th></tr></thead><tbody>{filteredQuotes.map((quote) => { const waiting = days(quote.createdAt); const attention = quote.status === 'Pending' && waiting >= 10; return <tr key={quote.id} className={attention ? 'row-alert' : undefined}><td><span className={attention ? 'dot danger' : 'dot'} />{quote.quoteNo}</td><td>{quote.customerName}</td><td>{quote.project}</td><td className="amount">{money(quote.amount)}</td><td><StatusBadge status={quote.status} /><select className="compact-select" value={quote.status} onChange={(event) => setQuotes((prev) => prev.map((candidate) => candidate.id === quote.id ? { ...candidate, status: event.target.value as QuoteStatus, updatedAt: today() } : candidate))}>{statusList.map((status) => <option key={status} value={status}>{statusText[status]}</option>)}</select></td><td className={attention ? 'danger-text' : undefined}>{quote.status === 'Pending' ? `${waiting}日経過` : '対応完了'}</td><td>{showDate(quote.createdAt)}</td><td>{showDate(quote.updatedAt)}</td><td><div className="table-actions"><button onClick={() => setPreview({ kind: 'quote', quote })}>プレビュー</button><button onClick={() => editQuote(quote)}>編集</button><button onClick={() => duplicateQuote(quote)}>複製</button><button onClick={() => convertToInvoice(quote)}>請求書化</button><button onClick={() => setNoteQuoteId(quote.id)}>メモ {quote.notes.length}</button><button className="danger-button" onClick={() => deleteQuote(quote)}>削除</button></div></td></tr> })}</tbody></table></div>
         </section>
-
-        <section className="grid-two">
-          <section className="panel"><div className="panel-head"><div><p className="eyebrow">Customer master</p><h2>顧客マスタ</h2></div></div><div className="master-form"><input placeholder="顧客名" value={customerDraft.name} onChange={(event) => setCustomerDraft({ ...customerDraft, name: event.target.value })} /><input placeholder="担当者" value={customerDraft.contact} onChange={(event) => setCustomerDraft({ ...customerDraft, contact: event.target.value })} /><input placeholder="メール" value={customerDraft.email} onChange={(event) => setCustomerDraft({ ...customerDraft, email: event.target.value })} /><textarea placeholder="メモ" value={customerDraft.memo} onChange={(event) => setCustomerDraft({ ...customerDraft, memo: event.target.value })} /><button className="btn primary" onClick={saveCustomer}>{editingCustomer ? '顧客を更新' : '顧客を追加'}</button></div><div className="master-list">{orgCustomers.map((customer) => <article key={customer.id}><strong>{customer.name}</strong><span>{customer.contact} / {customer.email}</span><p>{customer.memo}</p>{isAdmin && <div><button onClick={() => { setCustomerDraft({ name: customer.name, contact: customer.contact, email: customer.email, memo: customer.memo }); setEditingCustomer(customer.id) }}>編集</button><button onClick={() => deleteCustomer(customer)}>削除</button></div>}</article>)}</div></section>
-          <section className="panel"><div className="panel-head"><div><p className="eyebrow">Item master</p><h2>品目マスタ</h2></div></div><div className="master-form"><input placeholder="品目名" value={itemDraft.name} onChange={(event) => setItemDraft({ ...itemDraft, name: event.target.value })} /><input placeholder="カテゴリ" value={itemDraft.category} onChange={(event) => setItemDraft({ ...itemDraft, category: event.target.value })} /><input type="number" placeholder="単価" value={itemDraft.unitPrice} onChange={(event) => setItemDraft({ ...itemDraft, unitPrice: Math.max(0, Number(event.target.value) || 0) })} /><input placeholder="単位" value={itemDraft.unit} onChange={(event) => setItemDraft({ ...itemDraft, unit: event.target.value })} /><button className="btn primary" onClick={saveItem}>{editingItem ? '品目を更新' : '品目を追加'}</button></div><div className="master-list">{orgItems.map((item) => <article key={item.id}><strong>{item.name}</strong><span>{item.category} / {money(item.unitPrice)} / {item.unit}</span>{isAdmin && <div><button onClick={() => { setItemDraft({ name: item.name, category: item.category, unitPrice: item.unitPrice, unit: item.unit }); setEditingItem(item.id) }}>編集</button><button onClick={() => deleteItem(item)}>削除</button></div>}</article>)}</div></section>
-        </section>
-
+        </>}
+        {activePage === 'quote' && <>
         <section className="panel quote-panel">
-          <div className="panel-head"><div><p className="eyebrow">Speed quote</p><h2>{editingQuote ? '見積編集' : '見積入力'}</h2></div><div className="settings-strip"><label><span>見積番号</span><input value={settings.prefix} onChange={(event) => setSettings((prev) => ({ ...prev, prefix: event.target.value || 'Q' }))} /></label><label><span>次番号</span><input type="number" value={settings.nextNo} onChange={(event) => setSettings((prev) => ({ ...prev, nextNo: Math.max(1, Number(event.target.value) || 1) }))} /></label><label><span>税率</span><input type="number" value={settings.taxRate} onChange={(event) => setSettings((prev) => ({ ...prev, taxRate: Math.max(0, Number(event.target.value) || 0) }))} /></label><label><span>プラン</span><select value={settings.plan} onChange={(event) => setSettings((prev) => ({ ...prev, plan: event.target.value as Plan }))}><option value="free">Free（{FREE_LIMIT}件まで）</option><option value="pro">Pro（制限解除）</option></select></label></div></div>
+          <div className="panel-head"><div><p className="eyebrow">Speed quote</p><h2>{editingQuote ? '見積編集' : '見積入力'}</h2></div></div>
           <div className="quote-layout"><div className="quote-form"><div className="field-grid"><label><span>顧客名</span><select value={selectedCustomer} onChange={(event) => setSelectedCustomer(event.target.value)}>{orgCustomers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label><label><span>案件名</span><input value={project} onChange={(event) => setProject(event.target.value)} /></label></div><div className="customer-hint">{selectedCustomerData ? `${selectedCustomerData.contact} / ${selectedCustomerData.email} / ${selectedCustomerData.memo}` : '顧客マスタを追加してください。'}</div><div className="form-table-wrap"><table className="line-table"><thead><tr><th>品目</th><th>単価</th><th>数量</th><th>金額</th><th></th></tr></thead><tbody>{lines.map((line) => <tr key={line.id}><td><select value={line.itemId} onChange={(event) => changeLine(line.id, 'itemId', event.target.value)}>{orgItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></td><td><input type="number" value={line.unitPrice} onChange={(event) => changeLine(line.id, 'unitPrice', event.target.value)} /></td><td><input type="number" value={line.quantity} onChange={(event) => changeLine(line.id, 'quantity', event.target.value)} /></td><td className="amount">{money(line.unitPrice * line.quantity)}</td><td><button disabled={lines.length === 1} onClick={() => setLines((prev) => prev.filter((candidate) => candidate.id !== line.id))}>x</button></td></tr>)}</tbody></table></div><div className="quote-footer"><button className="btn ghost" onClick={() => orgItems[0] && setLines((prev) => [...prev, lineFrom(orgItems[0])])}>+ 明細を追加</button><div className="summary-inline"><span>小計 {money(currentTotals.sub)}</span><span>消費税 {money(currentTotals.tax)}</span><strong>合計 {money(currentTotals.total)}</strong></div></div><label className="memo-field"><span>メモ</span><textarea value={memo} onChange={(event) => setMemo(event.target.value)} /></label><div className="quote-actions"><button className="btn ghost" onClick={resetForm}>入力をリセット</button><button className="btn ghost" onClick={draftPreview}>見積書を確認</button><button className="btn primary" onClick={submitQuote}>{editingQuote ? '更新する' : '提出する'}</button></div></div></div>
         </section>
+        </>}
+        {activePage === 'invoices' && <>
+        <section className="panel invoice-panel">
+          <div className="panel-head"><div><p className="eyebrow">Invoices</p><h2>請求書一覧</h2></div><p className="section-note">見積から変換した請求書を確認できます。</p></div>
+          <div className="table-wrap"><table className="data-table invoice-table"><thead><tr><th>請求書番号</th><th>取引先</th><th>金額</th><th>作成日</th><th>操作</th></tr></thead><tbody>{orgInvoices.map((invoice) => { const quote = quotes.find((candidate) => candidate.id === invoice.quoteId); return <tr key={invoice.id}><td>{invoice.invoiceNo}</td><td>{invoice.customerName}</td><td className="amount">{money(invoice.amount)}</td><td>{showDate(invoice.createdAt)}</td><td><div className="table-actions invoice-actions"><button disabled={!quote} onClick={() => quote && setPreview({ kind: 'invoice', invoice, quote })}>プレビュー</button></div></td></tr> })}</tbody></table></div>
+        </section>
+        </>}
+        {activePage === 'customers' && <>
+<section className="panel"><div className="panel-head"><div><p className="eyebrow">Customer master</p><h2>顧客マスタ</h2></div></div><div className="master-form"><input placeholder="顧客名" value={customerDraft.name} onChange={(event) => setCustomerDraft({ ...customerDraft, name: event.target.value })} /><input placeholder="担当者" value={customerDraft.contact} onChange={(event) => setCustomerDraft({ ...customerDraft, contact: event.target.value })} /><input placeholder="メール" value={customerDraft.email} onChange={(event) => setCustomerDraft({ ...customerDraft, email: event.target.value })} /><textarea placeholder="メモ" value={customerDraft.memo} onChange={(event) => setCustomerDraft({ ...customerDraft, memo: event.target.value })} /><button className="btn primary" onClick={saveCustomer}>{editingCustomer ? '顧客を更新' : '顧客を追加'}</button></div><div className="master-list">{orgCustomers.map((customer) => <article key={customer.id}><strong>{customer.name}</strong><span>{customer.contact} / {customer.email}</span><p>{customer.memo}</p>{isAdmin && <div><button onClick={() => { setCustomerDraft({ name: customer.name, contact: customer.contact, email: customer.email, memo: customer.memo }); setEditingCustomer(customer.id) }}>編集</button><button onClick={() => deleteCustomer(customer)}>削除</button></div>}</article>)}</div></section>
+        </>}
+        {activePage === 'items' && <>
+<section className="panel"><div className="panel-head"><div><p className="eyebrow">Item master</p><h2>品目マスタ</h2></div></div><div className="master-form"><input placeholder="品目名" value={itemDraft.name} onChange={(event) => setItemDraft({ ...itemDraft, name: event.target.value })} /><input placeholder="カテゴリ" value={itemDraft.category} onChange={(event) => setItemDraft({ ...itemDraft, category: event.target.value })} /><input type="number" placeholder="単価" value={itemDraft.unitPrice} onChange={(event) => setItemDraft({ ...itemDraft, unitPrice: Math.max(0, Number(event.target.value) || 0) })} /><input placeholder="単位" value={itemDraft.unit} onChange={(event) => setItemDraft({ ...itemDraft, unit: event.target.value })} /><button className="btn primary" onClick={saveItem}>{editingItem ? '品目を更新' : '品目を追加'}</button></div><div className="master-list">{orgItems.map((item) => <article key={item.id}><strong>{item.name}</strong><span>{item.category} / {money(item.unitPrice)} / {item.unit}</span>{isAdmin && <div><button onClick={() => { setItemDraft({ name: item.name, category: item.category, unitPrice: item.unitPrice, unit: item.unit }); setEditingItem(item.id) }}>編集</button><button onClick={() => deleteItem(item)}>削除</button></div>}</article>)}</div></section>
+
+        </>}
+        {activePage === 'settings' && <>
+        <section className="panel settings-panel">
+          <div className="panel-head"><div><p className="eyebrow">Settings</p><h2>設定</h2></div><p className="section-note">会社、組織、ユーザー、見積番号、税率、プランを管理します。</p></div>
+          <div className="settings-page"><section className="workspace-panel"><label><span>会社 / 組織</span><select value={orgId} onChange={(event) => changeOrganization(event.target.value)}>{ORGS.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.company} / {candidate.name}</option>)}</select></label><label><span>ユーザー / ロール</span><select value={userId} onChange={(event) => setUserId(event.target.value)}>{USERS.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} / {candidate.role === 'admin' ? '管理者' : '担当者'}</option>)}</select></label><div className="workspace-meta"><strong>{org.company}</strong><span>{org.name} のデータだけを表示中</span></div></section><div className="settings-card"><div className="settings-card-head"><p className="eyebrow">Quote rules</p><h3>見積・税率設定</h3></div><div className="settings-strip"><label><span>見積番号</span><input value={settings.prefix} onChange={(event) => setSettings((prev) => ({ ...prev, prefix: event.target.value || 'Q' }))} /></label><label><span>次番号</span><input type="number" value={settings.nextNo} onChange={(event) => setSettings((prev) => ({ ...prev, nextNo: Math.max(1, Number(event.target.value) || 1) }))} /></label><label><span>税率</span><input type="number" value={settings.taxRate} onChange={(event) => setSettings((prev) => ({ ...prev, taxRate: Math.max(0, Number(event.target.value) || 0) }))} /></label><label><span>プラン</span><select value={settings.plan} onChange={(event) => setSettings((prev) => ({ ...prev, plan: event.target.value as Plan }))}><option value="free">Free（{FREE_LIMIT}件まで）</option><option value="pro">Pro（制限解除）</option></select></label></div></div></div>
+        </section>
+        </>}
       </main>
+        </div>
+      </div>
 
       {noteQuote && <div className="modal-overlay" onMouseDown={() => setNoteQuoteId(null)}><div className="modal-window small-modal" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><p className="eyebrow">Client memo</p><h2>顧客やり取りメモ</h2><span>{noteQuote.quoteNo} / {noteQuote.customerName}</span></div><button className="btn ghost" onClick={() => setNoteQuoteId(null)}>閉じる</button></div><div className="modal-body"><textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="やり取り内容を入力" /><button className="btn primary" onClick={addNote}>メモを追加</button><div className="note-list">{noteQuote.notes.map((note) => <article key={note.id}><time>{showDateTime(note.createdAt)} / {note.author}</time><p>{note.body}</p></article>)}</div></div></div></div>}
       {preview && <div className="modal-overlay" onMouseDown={() => setPreview(null)}><div className="modal-window" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><p className="eyebrow">Preview</p><h2>{preview.kind === 'invoice' ? '請求書プレビュー' : '見積書プレビュー'}</h2></div><div className="modal-actions"><button className="btn primary" onClick={() => window.print()}>PDF化 / 印刷</button><button className="btn ghost" onClick={() => setPreview(null)}>閉じる</button></div></div><div className="paper-wrap"><PreviewPaper target={preview} taxRate={settings.taxRate} /></div></div></div>}
