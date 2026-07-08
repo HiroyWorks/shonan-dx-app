@@ -10,12 +10,13 @@ type QuoteStatus = 'Pending' | 'Won' | 'Invoiced'
 type Role = 'admin' | 'member'
 type Plan = 'free' | 'pro'
 type SortKey = 'createdAt' | 'updatedAt' | 'amount' | 'quoteNo'
+type TaxKind = 'taxable' | 'exempt'
 type Page = 'dashboard' | 'quote' | 'invoices' | 'customers' | 'items' | 'settings'
 type Org = { id: string; company: string; name: string }
 type User = { id: string; name: string; email: string; role: Role; orgId: string }
 type Customer = { id: string; orgId: string; name: string; contact: string; email: string; memo: string }
-type Item = { id: string; orgId: string; name: string; category: string; unitPrice: number; unit: string }
-type Line = { id: string; itemId: string; name: string; unitPrice: number; quantity: number; unit: string }
+type Item = { id: string; orgId: string; name: string; category: string; unitPrice: number; unit: string; taxKind?: TaxKind }
+type Line = { id: string; itemId: string; name: string; unitPrice: number; quantity: number; unit: string; taxKind?: TaxKind; isCustom?: boolean }
 type Note = { id: string; body: string; author: string; createdAt: string }
 type Quote = { id: string; orgId: string; quoteNo: string; customerId: string; customerName: string; project: string; amount: number; status: QuoteStatus; createdAt: string; updatedAt: string; memo: string; lines: Line[]; notes: Note[]; invoiceNo?: string }
 type Invoice = { id: string; orgId: string; invoiceNo: string; quoteId: string; customerName: string; amount: number; createdAt: string }
@@ -38,13 +39,14 @@ const CUSTOMERS: Customer[] = [
   { id: 'c-other', orgId: 'org-backoffice', name: '社内管理用サンプル', contact: '経理担当', email: 'accounting@example.com', memo: '別組織のサンプル。' },
 ]
 const ITEMS: Item[] = [
-  { id: 'i-site', orgId: 'org-main', name: 'Webサイト制作', category: '制作', unitPrice: 180000, unit: '式' },
-  { id: 'i-lp', orgId: 'org-main', name: 'ランディングページ制作', category: '制作', unitPrice: 120000, unit: '式' },
-  { id: 'i-maintenance', orgId: 'org-main', name: '月額保守運用', category: '保守', unitPrice: 25000, unit: '月' },
-  { id: 'i-seo', orgId: 'org-main', name: 'SEO記事作成', category: 'コンテンツ', unitPrice: 15000, unit: '本' },
-  { id: 'i-support', orgId: 'org-main', name: '操作レクチャー', category: 'サポート', unitPrice: 12000, unit: '時間' },
-  { id: 'i-photo', orgId: 'org-main', name: '撮影ディレクション', category: '現場', unitPrice: 80000, unit: '回' },
-  { id: 'i-accounting', orgId: 'org-backoffice', name: '経理チェック', category: '管理', unitPrice: 10000, unit: '件' },
+  { id: 'i-site', orgId: 'org-main', name: 'Webサイト制作', category: '制作', unitPrice: 180000, unit: '式', taxKind: 'taxable' },
+  { id: 'i-lp', orgId: 'org-main', name: 'ランディングページ制作', category: '制作', unitPrice: 120000, unit: '式', taxKind: 'taxable' },
+  { id: 'i-maintenance', orgId: 'org-main', name: '月額保守運用', category: '保守', unitPrice: 25000, unit: '月', taxKind: 'taxable' },
+  { id: 'i-seo', orgId: 'org-main', name: 'SEO記事作成', category: 'コンテンツ', unitPrice: 15000, unit: '本', taxKind: 'taxable' },
+  { id: 'i-support', orgId: 'org-main', name: '操作レクチャー', category: 'サポート', unitPrice: 12000, unit: '時間', taxKind: 'taxable' },
+  { id: 'i-photo', orgId: 'org-main', name: '撮影ディレクション', category: '現場', unitPrice: 80000, unit: '回', taxKind: 'taxable' },
+  { id: 'i-travel', orgId: 'org-main', name: '立替交通費', category: '立替', unitPrice: 3000, unit: '件', taxKind: 'exempt' },
+  { id: 'i-accounting', orgId: 'org-backoffice', name: '経理チェック', category: '管理', unitPrice: 10000, unit: '件', taxKind: 'exempt' },
 ]
 const QUOTES: Quote[] = [
   { id: 'q-041', orgId: 'org-main', quoteNo: 'Q-2026-041', customerId: 'c-bakery', customerName: '湘南ベーカリー', project: '新商品サイトリニューアル', amount: 528000, status: 'Pending', createdAt: '2026-06-02', updatedAt: '2026-06-13', memo: '商品撮影素材の支給後、下層ページ構成を確定します。', lines: [{ id: 'l-1', itemId: 'i-site', name: 'Webサイト制作', unitPrice: 180000, quantity: 2, unit: '式' }, { id: 'l-2', itemId: 'i-lp', name: 'ランディングページ制作', unitPrice: 120000, quantity: 1, unit: '式' }], notes: [{ id: 'n-1', body: '商品写真の差し替え希望あり。6/14に素材共有予定。', author: '管理者ユーザー', createdAt: '2026-06-13T09:30:00.000Z' }] },
@@ -63,6 +65,11 @@ const navItems: { page: Page; label: string; description: string }[] = [
   { page: 'items', label: '品目マスタ', description: '単価・単位管理' },
   { page: 'settings', label: '設定', description: '組織・番号・税率' },
 ]
+const normalizeItems = (value: Item[]) => {
+  const fallbackExempt = ITEMS.find((item) => item.id === 'i-travel')
+  const normalized = value.map((item) => ({ ...item, taxKind: item.taxKind ?? 'taxable' }))
+  return fallbackExempt && !normalized.some((item) => item.id === fallbackExempt.id) ? [...normalized, fallbackExempt] : normalized
+}
 const statusList: QuoteStatus[] = ['Pending', 'Won', 'Invoiced']
 const yen = new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 })
 const dateFmt = new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })
@@ -78,9 +85,19 @@ const load = <T,>(name: string, fallback: T): T => {
   try { const raw = localStorage.getItem(`${KEY}:${name}`); return raw ? JSON.parse(raw) as T : fallback } catch { return fallback }
 }
 const save = <T,>(name: string, value: T) => localStorage.setItem(`${KEY}:${name}`, JSON.stringify(value))
-const lineFrom = (item: Item): Line => ({ id: id('line'), itemId: item.id, name: item.name, unitPrice: item.unitPrice, quantity: 1, unit: item.unit })
+const lineFrom = (item: Item): Line => ({ id: id('line'), itemId: item.id, name: item.name, unitPrice: item.unitPrice, quantity: 1, unit: item.unit, taxKind: item.taxKind ?? 'taxable' })
+const customLine = (): Line => ({ id: id('line'), itemId: `custom-${id('item')}`, name: '自由入力項目', unitPrice: 0, quantity: 1, unit: '式', taxKind: 'taxable', isCustom: true })
 const subtotal = (lines: Line[]) => lines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0)
-const totals = (lines: Line[], taxRate: number) => { const sub = subtotal(lines); const tax = Math.round(sub * taxRate / 100); return { sub, tax, total: sub + tax } }
+const taxableSubtotal = (lines: Line[]) => lines.reduce((sum, line) => {
+  return line.taxKind === 'exempt' ? sum : sum + line.unitPrice * line.quantity
+}, 0)
+const totals = (lines: Line[], taxRate: number) => {
+  const sub = subtotal(lines)
+  const taxable = taxableSubtotal(lines)
+  const tax = Math.round(taxable * taxRate / 100)
+  return { sub, taxable, tax, total: sub + tax }
+}
+const taxKindText = (taxKind?: TaxKind) => taxKind === 'exempt' ? '非課税' : '課税'
 function StatusBadge({ status }: { status: QuoteStatus }) {
   return <span className={`badge badge-${status.toLowerCase()}`}>{statusText[status]}</span>
 }
@@ -100,12 +117,12 @@ function PreviewPaper({ target, taxRate }: { target: Preview; taxRate: number })
         <div className="paper-box"><span>発行者</span><strong>Estimate management</strong><p>湘南DX合同会社 / 制作事業部</p><p>Supabase + Google認証対応</p></div>
       </div>
       <table className="paper-table">
-        <thead><tr><th>品目</th><th>単価</th><th>数量</th><th>金額</th></tr></thead>
-        <tbody>{quote.lines.map((line) => <tr key={line.id}><td><strong>{line.name}</strong><span>{line.unit}</span></td><td>{money(line.unitPrice)}</td><td>{line.quantity}</td><td>{money(line.unitPrice * line.quantity)}</td></tr>)}</tbody>
+        <thead><tr><th>品目</th><th>税区分</th><th>単価</th><th>数量</th><th>金額</th></tr></thead>
+        <tbody>{quote.lines.map((line) => <tr key={line.id}><td><strong>{line.name}</strong><span>{line.unit}</span></td><td><span className={line.taxKind === 'exempt' ? 'tax-chip exempt' : 'tax-chip'}>{taxKindText(line.taxKind)}</span></td><td>{money(line.unitPrice)}</td><td>{line.quantity}</td><td>{money(line.unitPrice * line.quantity)}</td></tr>)}</tbody>
       </table>
       <div className="paper-bottom">
         <div className="paper-note"><span>備考</span><p>{quote.memo}</p></div>
-        <div className="paper-totals"><div><span>小計</span><strong>{money(total.sub)}</strong></div><div><span>消費税（{taxRate}%）</span><strong>{money(total.tax)}</strong></div><div className="paper-grand"><span>合計</span><strong>{money(total.total)}</strong></div></div>
+        <div className="paper-totals"><div><span>小計</span><strong>{money(total.sub)}</strong></div><div><span>課税対象</span><strong>{money(total.taxable)}</strong></div><div><span>消費税（{taxRate}%）</span><strong>{money(total.tax)}</strong></div><div className="paper-grand"><span>合計</span><strong>{money(total.total)}</strong></div></div>
       </div>
     </div>
   )
@@ -116,13 +133,13 @@ function App() {
   const [orgId, setOrgId] = useState('org-main')
   const [userId, setUserId] = useState('admin')
   const [customers, setCustomers] = useState(() => load('customers', CUSTOMERS))
-  const [items, setItems] = useState(() => load('items', ITEMS))
+  const [items, setItems] = useState(() => normalizeItems(load('items', ITEMS)))
   const [quotes, setQuotes] = useState(() => load('quotes', QUOTES))
   const [invoices, setInvoices] = useState(() => load('invoices', INVOICES))
   const [settings, setSettings] = useState<Settings>(() => load('settings', { taxRate: 10, plan: 'free', prefix: 'Q', year: 2026, nextNo: 42 }))
   const [customerDraft, setCustomerDraft] = useState({ name: '', contact: '', email: '', memo: '' })
   const [editingCustomer, setEditingCustomer] = useState<string | null>(null)
-  const [itemDraft, setItemDraft] = useState({ name: '', category: '', unitPrice: 0, unit: '式' })
+  const [itemDraft, setItemDraft] = useState<{ name: string; category: string; unitPrice: number; unit: string; taxKind: TaxKind }>({ name: '', category: '', unitPrice: 0, unit: '式', taxKind: 'taxable' })
   const [editingItem, setEditingItem] = useState<string | null>(null)
   const [selectedCustomer, setSelectedCustomer] = useState('c-minato')
   const [project, setProject] = useState('コーポレートサイト見積')
@@ -197,7 +214,7 @@ function App() {
     if (line.id !== lineId) return line
     if (field === 'itemId') {
       const item = orgItems.find((candidate) => candidate.id === value)
-      return item ? { ...line, itemId: item.id, name: item.name, unitPrice: item.unitPrice, unit: item.unit } : line
+      return item ? { ...line, itemId: item.id, name: item.name, unitPrice: item.unitPrice, unit: item.unit, taxKind: item.taxKind ?? 'taxable', isCustom: false } : line
     }
     if (field === 'unitPrice' || field === 'quantity') return { ...line, [field]: Math.max(field === 'quantity' ? 1 : 0, Number(value) || 0) }
     return { ...line, [field]: value }
@@ -293,7 +310,7 @@ function App() {
     } else {
       setItems((prev) => [{ id: id('item'), orgId, ...itemDraft, name: itemDraft.name.trim() }, ...prev])
     }
-    setItemDraft({ name: '', category: '', unitPrice: 0, unit: '式' })
+    setItemDraft({ name: '', category: '', unitPrice: 0, unit: '式', taxKind: 'taxable' })
   }
   const deleteItem = (item: Item) => {
     if (lines.some((line) => line.itemId === item.id) || orgQuotes.some((quote) => quote.lines.some((line) => line.itemId === item.id))) return setMessage('使用中の品目は削除できません。')
@@ -341,7 +358,7 @@ function App() {
         {activePage === 'quote' && <>
         <section className="panel quote-panel">
           <div className="panel-head"><div><p className="eyebrow">Speed quote</p><h2>{editingQuote ? '見積編集' : '見積入力'}</h2></div></div>
-          <div className="quote-layout"><div className="quote-form"><div className="field-grid"><label><span>顧客名</span><select value={selectedCustomer} onChange={(event) => setSelectedCustomer(event.target.value)}>{orgCustomers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label><label><span>案件名</span><input value={project} onChange={(event) => setProject(event.target.value)} /></label></div><div className="customer-hint">{selectedCustomerData ? `${selectedCustomerData.contact} / ${selectedCustomerData.email} / ${selectedCustomerData.memo}` : '顧客マスタを追加してください。'}</div><div className="form-table-wrap"><table className="line-table"><thead><tr><th>品目</th><th>単価</th><th>数量</th><th>金額</th><th></th></tr></thead><tbody>{lines.map((line) => <tr key={line.id}><td><select value={line.itemId} onChange={(event) => changeLine(line.id, 'itemId', event.target.value)}>{orgItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></td><td><input type="number" value={line.unitPrice} onChange={(event) => changeLine(line.id, 'unitPrice', event.target.value)} /></td><td><input type="number" value={line.quantity} onChange={(event) => changeLine(line.id, 'quantity', event.target.value)} /></td><td className="amount">{money(line.unitPrice * line.quantity)}</td><td><button disabled={lines.length === 1} onClick={() => setLines((prev) => prev.filter((candidate) => candidate.id !== line.id))}>x</button></td></tr>)}</tbody></table></div><div className="quote-footer"><button className="btn ghost" onClick={() => orgItems[0] && setLines((prev) => [...prev, lineFrom(orgItems[0])])}>+ 明細を追加</button><div className="summary-inline"><span>小計 {money(currentTotals.sub)}</span><span>消費税 {money(currentTotals.tax)}</span><strong>合計 {money(currentTotals.total)}</strong></div></div><label className="memo-field"><span>メモ</span><textarea value={memo} onChange={(event) => setMemo(event.target.value)} /></label><div className="quote-actions"><button className="btn ghost" onClick={resetForm}>入力をリセット</button><button className="btn ghost" onClick={draftPreview}>見積書を確認</button><button className="btn primary" onClick={submitQuote}>{editingQuote ? '更新する' : '提出する'}</button></div></div></div>
+          <div className="quote-layout"><div className="quote-form"><div className="field-grid"><label><span>顧客名</span><select value={selectedCustomer} onChange={(event) => setSelectedCustomer(event.target.value)}>{orgCustomers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label><label><span>案件名</span><input value={project} onChange={(event) => setProject(event.target.value)} /></label></div><div className="customer-hint">{selectedCustomerData ? `${selectedCustomerData.contact} / ${selectedCustomerData.email} / ${selectedCustomerData.memo}` : '顧客マスタを追加してください。'}</div><div className="form-table-wrap"><table className="line-table"><thead><tr><th>品目</th><th>税区分</th><th>単価</th><th>数量</th><th>金額</th><th></th></tr></thead><tbody>{lines.map((line) => <tr key={line.id}><td>{line.isCustom ? <input value={line.name} onChange={(event) => changeLine(line.id, 'name', event.target.value)} placeholder="自由入力項目" /> : <select value={line.itemId} onChange={(event) => changeLine(line.id, 'itemId', event.target.value)}>{orgItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}</td><td><select value={line.taxKind ?? 'taxable'} onChange={(event) => changeLine(line.id, 'taxKind', event.target.value)}><option value="taxable">課税</option><option value="exempt">非課税</option></select></td><td><input type="number" value={line.unitPrice} onChange={(event) => changeLine(line.id, 'unitPrice', event.target.value)} /></td><td><input type="number" value={line.quantity} onChange={(event) => changeLine(line.id, 'quantity', event.target.value)} /></td><td className="amount">{money(line.unitPrice * line.quantity)}</td><td><button disabled={lines.length === 1} onClick={() => setLines((prev) => prev.filter((candidate) => candidate.id !== line.id))}>x</button></td></tr>)}</tbody></table></div><div className="quote-footer"><div className="line-add-actions"><button className="btn ghost" onClick={() => orgItems[0] && setLines((prev) => [...prev, lineFrom(orgItems[0])])}>+ マスタ明細を追加</button><button className="btn ghost" onClick={() => setLines((prev) => [...prev, customLine()])}>+ 自由明細を追加</button></div><div className="summary-inline"><span>小計 {money(currentTotals.sub)}</span><span>課税対象 {money(currentTotals.taxable)}</span><span>消費税 {money(currentTotals.tax)}</span><strong>合計 {money(currentTotals.total)}</strong></div></div><label className="memo-field"><span>メモ</span><textarea value={memo} onChange={(event) => setMemo(event.target.value)} /></label><div className="quote-actions"><button className="btn ghost" onClick={resetForm}>入力をリセット</button><button className="btn ghost" onClick={draftPreview}>見積書を確認</button><button className="btn primary" onClick={submitQuote}>{editingQuote ? '更新する' : '提出する'}</button></div></div></div>
         </section>
         </>}
         {activePage === 'invoices' && <>
@@ -354,7 +371,7 @@ function App() {
 <section className="panel"><div className="panel-head"><div><p className="eyebrow">Customer master</p><h2>顧客マスタ</h2></div></div><div className="master-form"><input placeholder="顧客名" value={customerDraft.name} onChange={(event) => setCustomerDraft({ ...customerDraft, name: event.target.value })} /><input placeholder="担当者" value={customerDraft.contact} onChange={(event) => setCustomerDraft({ ...customerDraft, contact: event.target.value })} /><input placeholder="メール" value={customerDraft.email} onChange={(event) => setCustomerDraft({ ...customerDraft, email: event.target.value })} /><textarea placeholder="メモ" value={customerDraft.memo} onChange={(event) => setCustomerDraft({ ...customerDraft, memo: event.target.value })} /><button className="btn primary" onClick={saveCustomer}>{editingCustomer ? '顧客を更新' : '顧客を追加'}</button></div><div className="master-list">{orgCustomers.map((customer) => <article key={customer.id}><strong>{customer.name}</strong><span>{customer.contact} / {customer.email}</span><p>{customer.memo}</p>{isAdmin && <div><button onClick={() => { setCustomerDraft({ name: customer.name, contact: customer.contact, email: customer.email, memo: customer.memo }); setEditingCustomer(customer.id) }}>編集</button><button onClick={() => deleteCustomer(customer)}>削除</button></div>}</article>)}</div></section>
         </>}
         {activePage === 'items' && <>
-<section className="panel"><div className="panel-head"><div><p className="eyebrow">Item master</p><h2>品目マスタ</h2></div></div><div className="master-form"><input placeholder="品目名" value={itemDraft.name} onChange={(event) => setItemDraft({ ...itemDraft, name: event.target.value })} /><input placeholder="カテゴリ" value={itemDraft.category} onChange={(event) => setItemDraft({ ...itemDraft, category: event.target.value })} /><input type="number" placeholder="単価" value={itemDraft.unitPrice} onChange={(event) => setItemDraft({ ...itemDraft, unitPrice: Math.max(0, Number(event.target.value) || 0) })} /><input placeholder="単位" value={itemDraft.unit} onChange={(event) => setItemDraft({ ...itemDraft, unit: event.target.value })} /><button className="btn primary" onClick={saveItem}>{editingItem ? '品目を更新' : '品目を追加'}</button></div><div className="master-list">{orgItems.map((item) => <article key={item.id}><strong>{item.name}</strong><span>{item.category} / {money(item.unitPrice)} / {item.unit}</span>{isAdmin && <div><button onClick={() => { setItemDraft({ name: item.name, category: item.category, unitPrice: item.unitPrice, unit: item.unit }); setEditingItem(item.id) }}>編集</button><button onClick={() => deleteItem(item)}>削除</button></div>}</article>)}</div></section>
+<section className="panel"><div className="panel-head"><div><p className="eyebrow">Item master</p><h2>品目マスタ</h2></div></div><div className="master-form"><input placeholder="品目名" value={itemDraft.name} onChange={(event) => setItemDraft({ ...itemDraft, name: event.target.value })} /><input placeholder="カテゴリ" value={itemDraft.category} onChange={(event) => setItemDraft({ ...itemDraft, category: event.target.value })} /><input type="number" placeholder="単価" value={itemDraft.unitPrice} onChange={(event) => setItemDraft({ ...itemDraft, unitPrice: Math.max(0, Number(event.target.value) || 0) })} /><input placeholder="単位" value={itemDraft.unit} onChange={(event) => setItemDraft({ ...itemDraft, unit: event.target.value })} /><select value={itemDraft.taxKind} onChange={(event) => setItemDraft({ ...itemDraft, taxKind: event.target.value as TaxKind })}><option value="taxable">課税</option><option value="exempt">非課税</option></select><button className="btn primary" onClick={saveItem}>{editingItem ? '品目を更新' : '品目を追加'}</button></div><div className="master-list">{orgItems.map((item) => <article key={item.id}><strong>{item.name}</strong><span>{item.category} / {money(item.unitPrice)} / {item.unit} / {taxKindText(item.taxKind)}</span>{isAdmin && <div><button onClick={() => { setItemDraft({ name: item.name, category: item.category, unitPrice: item.unitPrice, unit: item.unit, taxKind: item.taxKind ?? 'taxable' }); setEditingItem(item.id) }}>編集</button><button onClick={() => deleteItem(item)}>削除</button></div>}</article>)}</div></section>
 
         </>}
         {activePage === 'settings' && <>

@@ -494,3 +494,80 @@ td {
   box-shadow: none;
   border: 1px solid #e2e0db;
 }
+
+/* Tax kind and custom line refinements */
+.line-table {
+  min-width: 1120px;
+}
+
+.line-table th:nth-child(1),
+.line-table td:nth-child(1) {
+  width: 30%;
+}
+
+.line-table th:nth-child(2),
+.line-table td:nth-child(2) {
+  width: 13%;
+}
+
+.line-table th:nth-child(3),
+.line-table td:nth-child(3) {
+  width: 18%;
+}
+
+.line-table th:nth-child(4),
+.line-table td:nth-child(4) {
+  width: 11%;
+}
+
+.line-table th:nth-child(5),
+.line-table td:nth-child(5) {
+  width: 20%;
+}
+
+.line-table th:nth-child(6),
+.line-table td:nth-child(6) {
+  width: 56px;
+}
+
+.line-add-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tax-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d6eadb;
+  border-radius: 999px;
+  background: #f1faf3;
+  color: #2f6f44;
+  font-size: .76rem;
+  font-weight: 800;
+  padding: 5px 9px;
+  white-space: nowrap;
+}
+
+.tax-chip.exempt {
+  border-color: #d8d5ce;
+  background: #f7f6f3;
+  color: #787670;
+}
+
+.paper-table .tax-chip {
+  display: inline-flex;
+  font-size: .72rem;
+}
+
+@media (max-width: 1100px) {
+  .quote-footer {
+    grid-template-columns: 1fr;
+  }
+
+  .line-add-actions .btn {
+    flex: 1 1 180px;
+  }
+}
