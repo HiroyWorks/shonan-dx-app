@@ -766,3 +766,83 @@ td {
     padding: 1mm 2mm !important;
   }
 }
+
+/* Dashboard activity feed */
+.activity-list {
+  padding: 10px 20px 20px;
+  display: grid;
+  gap: 8px;
+}
+
+.activity-item {
+  display: grid;
+  grid-template-columns: 136px minmax(0, 1fr) 180px;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid #e2e0db;
+  border-radius: 12px;
+  background: #fffdf8;
+  padding: 13px 14px;
+}
+
+.activity-item strong {
+  display: block;
+  color: #37352f;
+  font-size: .95rem;
+}
+
+.activity-item p {
+  margin: 4px 0 0;
+  color: #787670;
+  font-size: .84rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.activity-item time {
+  color: #787670;
+  font-size: .8rem;
+  font-weight: 700;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.activity-kind {
+  width: fit-content;
+  border: 1px solid #dedbd4;
+  border-radius: 999px;
+  background: #f7f6f3;
+  color: #37352f;
+  font-size: .74rem;
+  font-weight: 800;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+
+.activity-invoice-created {
+  border-color: #d6eadb;
+  background: #f1faf3;
+  color: #2f6f44;
+}
+
+.activity-status-updated {
+  border-color: #f1dfb6;
+  background: #fff8e8;
+  color: #8a5a00;
+}
+
+.activity-memo-added {
+  border-color: #d9d7f1;
+  background: #f7f6ff;
+  color: #4f46a5;
+}
+
+@media (max-width: 900px) {
+  .activity-item {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-item time {
+    text-align: left;
+  }
+}

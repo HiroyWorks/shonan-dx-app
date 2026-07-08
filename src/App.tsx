@@ -20,6 +20,8 @@ type Line = { id: string; itemId: string; name: string; unitPrice: number; quant
 type Note = { id: string; body: string; author: string; createdAt: string }
 type Quote = { id: string; orgId: string; quoteNo: string; customerId: string; customerName: string; project: string; amount: number; status: QuoteStatus; createdAt: string; updatedAt: string; memo: string; lines: Line[]; notes: Note[]; invoiceNo?: string }
 type Invoice = { id: string; orgId: string; invoiceNo: string; quoteId: string; customerName: string; amount: number; createdAt: string }
+type ActivityKind = 'quote-created' | 'quote-updated' | 'status-updated' | 'invoice-created' | 'memo-added'
+type Activity = { id: string; orgId: string; kind: ActivityKind; title: string; description: string; createdAt: string }
 type Settings = { taxRate: number; plan: Plan; prefix: string; year: number; nextNo: number }
 type Preview = { kind: 'quote'; quote: Quote } | { kind: 'invoice'; quote: Quote; invoice: Invoice }
 
@@ -57,8 +59,15 @@ const INVOICES: Invoice[] = [{ id: 'inv-001', orgId: 'org-main', invoiceNo: 'INV
 const FREE_LIMIT = Number(import.meta.env.VITE_APP_FREE_QUOTE_LIMIT ?? 20)
 const KEY = 'estimate-management-v3'
 const statusText: Record<QuoteStatus, string> = { Pending: '返答待ち', Won: '成約', Invoiced: '請求済' }
+const activityText: Record<ActivityKind, string> = {
+  'quote-created': '見積作成',
+  'quote-updated': '見積更新',
+  'status-updated': 'ステータス変更',
+  'invoice-created': '請求書化',
+  'memo-added': 'メモ追加',
+}
 const navItems: { page: Page; label: string; description: string }[] = [
-  { page: 'dashboard', label: '見積一覧', description: '検索・ステータス管理' },
+  { page: 'dashboard', label: 'Dashboard', description: 'トップ・最新更新' },
   { page: 'quote', label: '見積作成', description: '新規・編集入力' },
   { page: 'invoices', label: '請求書', description: '変換済み書類' },
   { page: 'customers', label: '顧客マスタ', description: '取引先管理' },
@@ -96,6 +105,23 @@ const dayStartMs = (s: string) => {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
 }
 const days = (s: string) => Math.max(0, Math.floor((dayStartMs(today()) - dayStartMs(s)) / 86400000))
+const makeInitialActivities = (sourceQuotes: Quote[] = QUOTES, sourceInvoices: Invoice[] = INVOICES): Activity[] => {
+  const activities: Activity[] = []
+  sourceQuotes.forEach((quote) => {
+    activities.push({ id: `activity-created-${quote.id}`, orgId: quote.orgId, kind: 'quote-created', title: `${quote.quoteNo} を作成`, description: `${quote.customerName} / ${quote.project} / ${money(quote.amount)}`, createdAt: quote.createdAt })
+    if (quote.updatedAt !== quote.createdAt) {
+      activities.push({ id: `activity-updated-${quote.id}`, orgId: quote.orgId, kind: 'quote-updated', title: `${quote.quoteNo} を更新`, description: `${quote.customerName} / ${quote.project}`, createdAt: quote.updatedAt })
+    }
+    quote.notes.forEach((note) => {
+      activities.push({ id: `activity-note-${quote.id}-${note.id}`, orgId: quote.orgId, kind: 'memo-added', title: `${quote.quoteNo} にメモを追加`, description: note.body, createdAt: note.createdAt })
+    })
+  })
+  sourceInvoices.forEach((invoice) => {
+    const quote = sourceQuotes.find((candidate) => candidate.id === invoice.quoteId)
+    activities.push({ id: `activity-invoice-${invoice.id}`, orgId: invoice.orgId, kind: 'invoice-created', title: `${invoice.invoiceNo} を作成`, description: quote ? `${quote.quoteNo} / ${quote.customerName} / ${money(invoice.amount)}` : `${invoice.customerName} / ${money(invoice.amount)}`, createdAt: invoice.createdAt })
+  })
+  return activities.sort((a, b) => parseDateValue(b.createdAt).getTime() - parseDateValue(a.createdAt).getTime()).slice(0, 50)
+}
 const load = <T,>(name: string, fallback: T): T => {
   try { const raw = localStorage.getItem(`${KEY}:${name}`); return raw ? JSON.parse(raw) as T : fallback } catch { return fallback }
 }
@@ -151,6 +177,10 @@ function App() {
   const [items, setItems] = useState(() => normalizeItems(load('items', ITEMS)))
   const [quotes, setQuotes] = useState(() => load('quotes', QUOTES))
   const [invoices, setInvoices] = useState(() => load('invoices', INVOICES))
+  const [activities, setActivities] = useState(() => {
+    const stored = load<Activity[]>('activities', [])
+    return stored.length ? stored : makeInitialActivities(load('quotes', QUOTES), load('invoices', INVOICES))
+  })
   const [settings, setSettings] = useState<Settings>(() => load('settings', { taxRate: 10, plan: 'free', prefix: 'Q', year: 2026, nextNo: 42 }))
   const [customerDraft, setCustomerDraft] = useState({ name: '', contact: '', email: '', memo: '' })
   const [editingCustomer, setEditingCustomer] = useState<string | null>(null)
@@ -186,6 +216,7 @@ function App() {
   useEffect(() => save('items', items), [items])
   useEffect(() => save('quotes', quotes), [quotes])
   useEffect(() => save('invoices', invoices), [invoices])
+  useEffect(() => save('activities', activities), [activities])
   useEffect(() => save('settings', settings), [settings])
   useEffect(() => {
     if (!isSupabaseConfigured) return
@@ -210,6 +241,31 @@ function App() {
     }).sort((a, b) => sortKey === 'amount' ? b.amount - a.amount : String(b[sortKey]).localeCompare(String(a[sortKey])))
   }, [orgQuotes, query, sortKey, statusFilter])
 
+  const recentActivities = useMemo(() => {
+    return [...activities]
+      .filter((activity) => activity.orgId === orgId)
+      .sort((a, b) => parseDateValue(b.createdAt).getTime() - parseDateValue(a.createdAt).getTime())
+      .slice(0, 10)
+  }, [activities, orgId])
+
+  const recordActivity = (activity: Omit<Activity, 'id' | 'orgId' | 'createdAt'> & { orgId?: string; createdAt?: string }) => {
+    const entry: Activity = {
+      id: id('activity'),
+      orgId: activity.orgId ?? orgId,
+      kind: activity.kind,
+      title: activity.title,
+      description: activity.description,
+      createdAt: activity.createdAt ?? now(),
+    }
+    setActivities((prev) => [entry, ...prev].slice(0, 200))
+  }
+
+  const updateQuoteStatus = (quote: Quote, status: QuoteStatus) => {
+    if (quote.status === status) return
+    const eventAt = now()
+    setQuotes((prev) => prev.map((candidate) => candidate.id === quote.id ? { ...candidate, status, updatedAt: eventAt } : candidate))
+    recordActivity({ kind: 'status-updated', title: `${quote.quoteNo} を${statusText[status]}に変更`, description: `${quote.customerName} / ${quote.project}`, createdAt: eventAt })
+  }
   const changeOrganization = (nextOrgId: string) => {
     const firstCustomer = customers.find((customer) => customer.orgId === nextOrgId)
     const firstItem = items.find((item) => item.orgId === nextOrgId)
@@ -238,6 +294,7 @@ function App() {
     const customer = customers.find((candidate) => candidate.id === selectedCustomer)
     if (!customer) return setMessage('顧客を選択してください。')
     if (!canAddQuote && !editingQuote) return setMessage(`フリープランは見積${FREE_LIMIT}件までです。Proに切り替えると制限を解除できます。`)
+    const eventAt = now()
     const old = editingQuote ? quotes.find((quote) => quote.id === editingQuote) : undefined
     const quote: Quote = {
       id: old?.id ?? id('quote'),
@@ -248,8 +305,8 @@ function App() {
       project: project.trim() || '無題の案件',
       amount: currentTotals.total,
       status: old?.status ?? 'Pending',
-      createdAt: old?.createdAt ?? now(),
-      updatedAt: now(),
+      createdAt: old?.createdAt ?? eventAt,
+      updatedAt: eventAt,
       memo,
       lines,
       notes: old?.notes ?? [],
@@ -258,10 +315,12 @@ function App() {
     if (old) {
       setQuotes((prev) => prev.map((candidate) => candidate.id === old.id ? quote : candidate))
       setMessage(`${quote.quoteNo} を更新しました。`)
+      recordActivity({ kind: 'quote-updated', title: `${quote.quoteNo} を更新`, description: `${quote.customerName} / ${quote.project} / ${money(quote.amount)}`, createdAt: eventAt })
     } else {
       setQuotes((prev) => [quote, ...prev])
       setSettings((prev) => ({ ...prev, nextNo: prev.nextNo + 1 }))
       setMessage(`${quote.quoteNo} を提出済み一覧へ追加しました。`)
+      recordActivity({ kind: 'quote-created', title: `${quote.quoteNo} を作成`, description: `${quote.customerName} / ${quote.project} / ${money(quote.amount)}`, createdAt: eventAt })
     }
     resetForm()
   }
@@ -293,13 +352,15 @@ function App() {
   const convertToInvoice = (quote: Quote) => {
     const existing = invoices.find((invoice) => invoice.quoteId === quote.id)
     if (existing) return setPreview({ kind: 'invoice', invoice: existing, quote })
+    const eventAt = now()
     const invoiceNo = `INV-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(3, '0')}`
-    const invoice: Invoice = { id: id('invoice'), orgId: quote.orgId, invoiceNo, quoteId: quote.id, customerName: quote.customerName, amount: quote.amount, createdAt: now() }
-    const converted = { ...quote, status: 'Invoiced' as QuoteStatus, invoiceNo, updatedAt: now() }
+    const invoice: Invoice = { id: id('invoice'), orgId: quote.orgId, invoiceNo, quoteId: quote.id, customerName: quote.customerName, amount: quote.amount, createdAt: eventAt }
+    const converted = { ...quote, status: 'Invoiced' as QuoteStatus, invoiceNo, updatedAt: eventAt }
     setInvoices((prev) => [invoice, ...prev])
     setQuotes((prev) => prev.map((candidate) => candidate.id === quote.id ? converted : candidate))
     setPreview({ kind: 'invoice', invoice, quote: converted })
     setMessage(`${quote.quoteNo} から ${invoiceNo} を作成しました。`)
+    recordActivity({ kind: 'invoice-created', title: `${invoiceNo} を作成`, description: `${quote.quoteNo} / ${quote.customerName} / ${money(quote.amount)}`, createdAt: eventAt })
   }
   const saveCustomer = () => {
     if (!customerDraft.name.trim()) return
@@ -333,9 +394,11 @@ function App() {
   }
   const addNote = () => {
     if (!noteQuote || !noteDraft.trim()) return
-    const note: Note = { id: id('note'), body: noteDraft.trim(), author: user.name, createdAt: now() }
-    setQuotes((prev) => prev.map((quote) => quote.id === noteQuote.id ? { ...quote, notes: [note, ...quote.notes], updatedAt: now() } : quote))
+    const eventAt = now()
+    const note: Note = { id: id('note'), body: noteDraft.trim(), author: user.name, createdAt: eventAt }
+    setQuotes((prev) => prev.map((quote) => quote.id === noteQuote.id ? { ...quote, notes: [note, ...quote.notes], updatedAt: eventAt } : quote))
     setNoteDraft('')
+    recordActivity({ kind: 'memo-added', title: `${noteQuote.quoteNo} にメモを追加`, description: note.body, createdAt: eventAt })
   }
   const draftPreview = () => {
     const customer = customers.find((candidate) => candidate.id === selectedCustomer)
@@ -365,9 +428,13 @@ function App() {
 
         {activePage === 'dashboard' && <>
 <section className="kpi-grid"><div className="kpi-card"><span>見積総額</span><strong>{money(stats.total)}</strong><small>表示中組織の全見積</small></div><div className="kpi-card"><span>成約金額</span><strong>{money(stats.won)}</strong><small>ステータス成約のみ</small></div><div className="kpi-card"><span>請求書</span><strong>{stats.invoices}件</strong><small>見積から変換済み</small></div><div className="kpi-card alert"><span>要フォロー</span><strong>{stats.follow}件</strong><small>10日以上の返答待ち</small></div></section>
+        <section className="panel activity-panel">
+          <div className="panel-head"><div><p className="eyebrow">Dashboard</p><h2>最新の更新</h2></div><p className="section-note">見積作成、更新、請求書化、メモ追加など直近10件を表示します。</p></div>
+          <div className="activity-list">{recentActivities.map((activity) => <article key={activity.id} className="activity-item"><span className={`activity-kind activity-${activity.kind}`}>{activityText[activity.kind]}</span><div><strong>{activity.title}</strong><p>{activity.description}</p></div><time>{showDateTime(activity.createdAt)}</time></article>)}</div>
+        </section>
         <section className="panel dashboard-panel">
-          <div className="panel-head"><div><p className="eyebrow">Dashboard</p><h2>提出済みの見積一覧</h2></div><div className="filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="見積番号・顧客・案件で検索" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'All' | QuoteStatus)}><option value="All">すべてのステータス</option>{statusList.map((status) => <option key={status} value={status}>{statusText[status]}</option>)}</select><select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}><option value="createdAt">提出日順</option><option value="updatedAt">更新日順</option><option value="amount">金額順</option><option value="quoteNo">見積番号順</option></select></div></div>
-          <div className="table-wrap"><table className="data-table"><thead><tr><th>見積番号</th><th>取引先</th><th>案件名</th><th>金額</th><th>ステータス</th><th>経過</th><th>提出日</th><th>更新日</th><th>操作</th></tr></thead><tbody>{filteredQuotes.map((quote) => { const waiting = days(quote.createdAt); const attention = quote.status === 'Pending' && waiting >= 10; return <tr key={quote.id} className={attention ? 'row-alert' : undefined}><td><span className={attention ? 'dot danger' : 'dot'} />{quote.quoteNo}</td><td>{quote.customerName}</td><td>{quote.project}</td><td className="amount">{money(quote.amount)}</td><td><StatusBadge status={quote.status} /><select className="compact-select" value={quote.status} onChange={(event) => setQuotes((prev) => prev.map((candidate) => candidate.id === quote.id ? { ...candidate, status: event.target.value as QuoteStatus, updatedAt: now() } : candidate))}>{statusList.map((status) => <option key={status} value={status}>{statusText[status]}</option>)}</select></td><td className={attention ? 'danger-text' : undefined}>{quote.status === 'Pending' ? `${waiting}日経過` : '対応完了'}</td><td>{showDateTime(quote.createdAt)}</td><td>{showDateTime(quote.updatedAt)}</td><td><div className="table-actions"><button onClick={() => setPreview({ kind: 'quote', quote })}>プレビュー</button><button onClick={() => editQuote(quote)}>編集</button><button onClick={() => duplicateQuote(quote)}>複製</button><button onClick={() => convertToInvoice(quote)}>請求書化</button><button onClick={() => setNoteQuoteId(quote.id)}>メモ {quote.notes.length}</button><button className="danger-button" onClick={() => deleteQuote(quote)}>削除</button></div></td></tr> })}</tbody></table></div>
+          <div className="panel-head"><div><p className="eyebrow">Quotes</p><h2>提出済みの見積一覧</h2></div><div className="filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="見積番号・顧客・案件で検索" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'All' | QuoteStatus)}><option value="All">すべてのステータス</option>{statusList.map((status) => <option key={status} value={status}>{statusText[status]}</option>)}</select><select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}><option value="createdAt">提出日順</option><option value="updatedAt">更新日順</option><option value="amount">金額順</option><option value="quoteNo">見積番号順</option></select></div></div>
+          <div className="table-wrap"><table className="data-table"><thead><tr><th>見積番号</th><th>取引先</th><th>案件名</th><th>金額</th><th>ステータス</th><th>経過</th><th>提出日</th><th>更新日</th><th>操作</th></tr></thead><tbody>{filteredQuotes.map((quote) => { const waiting = days(quote.createdAt); const attention = quote.status === 'Pending' && waiting >= 10; return <tr key={quote.id} className={attention ? 'row-alert' : undefined}><td><span className={attention ? 'dot danger' : 'dot'} />{quote.quoteNo}</td><td>{quote.customerName}</td><td>{quote.project}</td><td className="amount">{money(quote.amount)}</td><td><StatusBadge status={quote.status} /><select className="compact-select" value={quote.status} onChange={(event) => updateQuoteStatus(quote, event.target.value as QuoteStatus)}>{statusList.map((status) => <option key={status} value={status}>{statusText[status]}</option>)}</select></td><td className={attention ? 'danger-text' : undefined}>{quote.status === 'Pending' ? `${waiting}日経過` : '対応完了'}</td><td>{showDateTime(quote.createdAt)}</td><td>{showDateTime(quote.updatedAt)}</td><td><div className="table-actions"><button onClick={() => setPreview({ kind: 'quote', quote })}>プレビュー</button><button onClick={() => editQuote(quote)}>編集</button><button onClick={() => duplicateQuote(quote)}>複製</button><button onClick={() => convertToInvoice(quote)}>請求書化</button><button onClick={() => setNoteQuoteId(quote.id)}>メモ {quote.notes.length}</button><button className="danger-button" onClick={() => deleteQuote(quote)}>削除</button></div></td></tr> })}</tbody></table></div>
         </section>
         </>}
         {activePage === 'quote' && <>
