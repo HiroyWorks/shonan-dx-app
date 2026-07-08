@@ -73,14 +73,29 @@ const normalizeItems = (value: Item[]) => {
 const statusList: QuoteStatus[] = ['Pending', 'Won', 'Invoiced']
 const yen = new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 })
 const dateFmt = new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })
-const dateTimeFmt = new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-const today = () => new Date().toISOString().slice(0, 10)
+const dateTimeFmt = new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/
+const parseDateValue = (value: string) => {
+  if (dateOnlyPattern.test(value)) {
+    const [year, month, day] = value.split('-').map(Number)
+    return new Date(year, month - 1, day, 0, 0, 0)
+  }
+  return new Date(value)
+}
+const today = () => {
+  const date = new Date()
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-')
+}
 const now = () => new Date().toISOString()
 const id = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 const money = (n: number) => yen.format(n)
-const showDate = (s: string) => dateFmt.format(new Date(s))
-const showDateTime = (s: string) => dateTimeFmt.format(new Date(s))
-const days = (s: string) => Math.max(0, Math.floor((new Date(`${today()}T00:00:00`).getTime() - new Date(`${s}T00:00:00`).getTime()) / 86400000))
+const showDate = (s: string) => dateFmt.format(parseDateValue(s))
+const showDateTime = (s: string) => dateTimeFmt.format(parseDateValue(s))
+const dayStartMs = (s: string) => {
+  const date = parseDateValue(s)
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+}
+const days = (s: string) => Math.max(0, Math.floor((dayStartMs(today()) - dayStartMs(s)) / 86400000))
 const load = <T,>(name: string, fallback: T): T => {
   try { const raw = localStorage.getItem(`${KEY}:${name}`); return raw ? JSON.parse(raw) as T : fallback } catch { return fallback }
 }
@@ -233,8 +248,8 @@ function App() {
       project: project.trim() || '無題の案件',
       amount: currentTotals.total,
       status: old?.status ?? 'Pending',
-      createdAt: old?.createdAt ?? today(),
-      updatedAt: today(),
+      createdAt: old?.createdAt ?? now(),
+      updatedAt: now(),
       memo,
       lines,
       notes: old?.notes ?? [],
@@ -279,8 +294,8 @@ function App() {
     const existing = invoices.find((invoice) => invoice.quoteId === quote.id)
     if (existing) return setPreview({ kind: 'invoice', invoice: existing, quote })
     const invoiceNo = `INV-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(3, '0')}`
-    const invoice: Invoice = { id: id('invoice'), orgId: quote.orgId, invoiceNo, quoteId: quote.id, customerName: quote.customerName, amount: quote.amount, createdAt: today() }
-    const converted = { ...quote, status: 'Invoiced' as QuoteStatus, invoiceNo, updatedAt: today() }
+    const invoice: Invoice = { id: id('invoice'), orgId: quote.orgId, invoiceNo, quoteId: quote.id, customerName: quote.customerName, amount: quote.amount, createdAt: now() }
+    const converted = { ...quote, status: 'Invoiced' as QuoteStatus, invoiceNo, updatedAt: now() }
     setInvoices((prev) => [invoice, ...prev])
     setQuotes((prev) => prev.map((candidate) => candidate.id === quote.id ? converted : candidate))
     setPreview({ kind: 'invoice', invoice, quote: converted })
@@ -319,13 +334,13 @@ function App() {
   const addNote = () => {
     if (!noteQuote || !noteDraft.trim()) return
     const note: Note = { id: id('note'), body: noteDraft.trim(), author: user.name, createdAt: now() }
-    setQuotes((prev) => prev.map((quote) => quote.id === noteQuote.id ? { ...quote, notes: [note, ...quote.notes], updatedAt: today() } : quote))
+    setQuotes((prev) => prev.map((quote) => quote.id === noteQuote.id ? { ...quote, notes: [note, ...quote.notes], updatedAt: now() } : quote))
     setNoteDraft('')
   }
   const draftPreview = () => {
     const customer = customers.find((candidate) => candidate.id === selectedCustomer)
     if (!customer) return
-    setPreview({ kind: 'quote', quote: { id: 'draft', orgId, quoteNo: editingQuote ? quotes.find((quote) => quote.id === editingQuote)?.quoteNo ?? nextQuoteNo : nextQuoteNo, customerId: customer.id, customerName: customer.name, project, amount: currentTotals.total, status: 'Pending', createdAt: today(), updatedAt: today(), memo, lines, notes: [] } })
+    setPreview({ kind: 'quote', quote: { id: 'draft', orgId, quoteNo: editingQuote ? quotes.find((quote) => quote.id === editingQuote)?.quoteNo ?? nextQuoteNo : nextQuoteNo, customerId: customer.id, customerName: customer.name, project, amount: currentTotals.total, status: 'Pending', createdAt: now(), updatedAt: now(), memo, lines, notes: [] } })
   }
   const selectedCustomerData = orgCustomers.find((customer) => customer.id === selectedCustomer)
 
@@ -352,7 +367,7 @@ function App() {
 <section className="kpi-grid"><div className="kpi-card"><span>見積総額</span><strong>{money(stats.total)}</strong><small>表示中組織の全見積</small></div><div className="kpi-card"><span>成約金額</span><strong>{money(stats.won)}</strong><small>ステータス成約のみ</small></div><div className="kpi-card"><span>請求書</span><strong>{stats.invoices}件</strong><small>見積から変換済み</small></div><div className="kpi-card alert"><span>要フォロー</span><strong>{stats.follow}件</strong><small>10日以上の返答待ち</small></div></section>
         <section className="panel dashboard-panel">
           <div className="panel-head"><div><p className="eyebrow">Dashboard</p><h2>提出済みの見積一覧</h2></div><div className="filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="見積番号・顧客・案件で検索" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'All' | QuoteStatus)}><option value="All">すべてのステータス</option>{statusList.map((status) => <option key={status} value={status}>{statusText[status]}</option>)}</select><select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}><option value="createdAt">提出日順</option><option value="updatedAt">更新日順</option><option value="amount">金額順</option><option value="quoteNo">見積番号順</option></select></div></div>
-          <div className="table-wrap"><table className="data-table"><thead><tr><th>見積番号</th><th>取引先</th><th>案件名</th><th>金額</th><th>ステータス</th><th>経過</th><th>提出日</th><th>更新日</th><th>操作</th></tr></thead><tbody>{filteredQuotes.map((quote) => { const waiting = days(quote.createdAt); const attention = quote.status === 'Pending' && waiting >= 10; return <tr key={quote.id} className={attention ? 'row-alert' : undefined}><td><span className={attention ? 'dot danger' : 'dot'} />{quote.quoteNo}</td><td>{quote.customerName}</td><td>{quote.project}</td><td className="amount">{money(quote.amount)}</td><td><StatusBadge status={quote.status} /><select className="compact-select" value={quote.status} onChange={(event) => setQuotes((prev) => prev.map((candidate) => candidate.id === quote.id ? { ...candidate, status: event.target.value as QuoteStatus, updatedAt: today() } : candidate))}>{statusList.map((status) => <option key={status} value={status}>{statusText[status]}</option>)}</select></td><td className={attention ? 'danger-text' : undefined}>{quote.status === 'Pending' ? `${waiting}日経過` : '対応完了'}</td><td>{showDate(quote.createdAt)}</td><td>{showDate(quote.updatedAt)}</td><td><div className="table-actions"><button onClick={() => setPreview({ kind: 'quote', quote })}>プレビュー</button><button onClick={() => editQuote(quote)}>編集</button><button onClick={() => duplicateQuote(quote)}>複製</button><button onClick={() => convertToInvoice(quote)}>請求書化</button><button onClick={() => setNoteQuoteId(quote.id)}>メモ {quote.notes.length}</button><button className="danger-button" onClick={() => deleteQuote(quote)}>削除</button></div></td></tr> })}</tbody></table></div>
+          <div className="table-wrap"><table className="data-table"><thead><tr><th>見積番号</th><th>取引先</th><th>案件名</th><th>金額</th><th>ステータス</th><th>経過</th><th>提出日</th><th>更新日</th><th>操作</th></tr></thead><tbody>{filteredQuotes.map((quote) => { const waiting = days(quote.createdAt); const attention = quote.status === 'Pending' && waiting >= 10; return <tr key={quote.id} className={attention ? 'row-alert' : undefined}><td><span className={attention ? 'dot danger' : 'dot'} />{quote.quoteNo}</td><td>{quote.customerName}</td><td>{quote.project}</td><td className="amount">{money(quote.amount)}</td><td><StatusBadge status={quote.status} /><select className="compact-select" value={quote.status} onChange={(event) => setQuotes((prev) => prev.map((candidate) => candidate.id === quote.id ? { ...candidate, status: event.target.value as QuoteStatus, updatedAt: now() } : candidate))}>{statusList.map((status) => <option key={status} value={status}>{statusText[status]}</option>)}</select></td><td className={attention ? 'danger-text' : undefined}>{quote.status === 'Pending' ? `${waiting}日経過` : '対応完了'}</td><td>{showDateTime(quote.createdAt)}</td><td>{showDateTime(quote.updatedAt)}</td><td><div className="table-actions"><button onClick={() => setPreview({ kind: 'quote', quote })}>プレビュー</button><button onClick={() => editQuote(quote)}>編集</button><button onClick={() => duplicateQuote(quote)}>複製</button><button onClick={() => convertToInvoice(quote)}>請求書化</button><button onClick={() => setNoteQuoteId(quote.id)}>メモ {quote.notes.length}</button><button className="danger-button" onClick={() => deleteQuote(quote)}>削除</button></div></td></tr> })}</tbody></table></div>
         </section>
         </>}
         {activePage === 'quote' && <>
@@ -364,7 +379,7 @@ function App() {
         {activePage === 'invoices' && <>
         <section className="panel invoice-panel">
           <div className="panel-head"><div><p className="eyebrow">Invoices</p><h2>請求書一覧</h2></div><p className="section-note">見積から変換した請求書を確認できます。</p></div>
-          <div className="table-wrap"><table className="data-table invoice-table"><thead><tr><th>請求書番号</th><th>取引先</th><th>金額</th><th>作成日</th><th>操作</th></tr></thead><tbody>{orgInvoices.map((invoice) => { const quote = quotes.find((candidate) => candidate.id === invoice.quoteId); return <tr key={invoice.id}><td>{invoice.invoiceNo}</td><td>{invoice.customerName}</td><td className="amount">{money(invoice.amount)}</td><td>{showDate(invoice.createdAt)}</td><td><div className="table-actions invoice-actions"><button disabled={!quote} onClick={() => quote && setPreview({ kind: 'invoice', invoice, quote })}>プレビュー</button></div></td></tr> })}</tbody></table></div>
+          <div className="table-wrap"><table className="data-table invoice-table"><thead><tr><th>請求書番号</th><th>取引先</th><th>金額</th><th>作成日</th><th>操作</th></tr></thead><tbody>{orgInvoices.map((invoice) => { const quote = quotes.find((candidate) => candidate.id === invoice.quoteId); return <tr key={invoice.id}><td>{invoice.invoiceNo}</td><td>{invoice.customerName}</td><td className="amount">{money(invoice.amount)}</td><td>{showDateTime(invoice.createdAt)}</td><td><div className="table-actions invoice-actions"><button disabled={!quote} onClick={() => quote && setPreview({ kind: 'invoice', invoice, quote })}>プレビュー</button></div></td></tr> })}</tbody></table></div>
         </section>
         </>}
         {activePage === 'customers' && <>
