@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import './App.css'
-import { isSupabaseConfigured, signInWithGoogle, signOut, supabase } from './lib/supabase'
+import { isGoogleProviderEnabled, isSupabaseConfigured, signInWithGoogle, signOut, supabase } from './lib/supabase'
 
 void React
 
@@ -169,8 +169,65 @@ function PreviewPaper({ target, taxRate }: { target: Preview; taxRate: number })
   )
 }
 
+const authErrorText = (error: unknown) => {
+  const detail = error instanceof Error ? error.message : String(error)
+  if (/provider is not enabled|unsupported provider/i.test(detail)) {
+    return 'Googleログインがまだ有効化されていません。管理者がSupabaseのGoogle providerを設定するまでお待ちください。'
+  }
+  return 'ログインに失敗しました。時間をおいてもう一度お試しください。'
+}
+
+type LoginScreenProps = {
+  checking: boolean
+  pending: boolean
+  error: string
+  onGoogleLogin: () => void
+}
+
+function LoginScreen({ checking, pending, error, onGoogleLogin }: LoginScreenProps) {
+  return (
+    <main className='login-page'>
+      <section className='login-visual' aria-hidden='true'>
+        <div className='login-visual-content'>
+          <p className='eyebrow'>Estimate management</p>
+          <h1>見積業務を、<br />ひとつのワークスペースに。</h1>
+          <p>顧客・品目・見積・請求書を、組織ごとに安全に管理します。</p>
+          <div className='login-feature-list'>
+            <span>見積作成と進捗管理</span>
+            <span>請求書へのスムーズな変換</span>
+            <span>組織単位のアクセス制御</span>
+          </div>
+        </div>
+      </section>
+      <section className='login-panel'>
+        <div className='login-card'>
+          <div className='login-mark'>E</div>
+          <div>
+            <p className='eyebrow'>Welcome back</p>
+            <h2>ログイン</h2>
+            <p className='login-description'>招待されたGoogleアカウントでログインしてください。</p>
+          </div>
+          {error && <div className='login-error' role='alert'>{error}</div>}
+          {checking ? (
+            <div className='login-status'><span className='login-spinner' />認証状態を確認しています</div>
+          ) : (
+            <button className='google-login-button' type='button' disabled={pending} onClick={onGoogleLogin}>
+              <span className='google-mark'>G</span>
+              {pending ? 'Googleへ接続しています…' : 'Googleでログイン'}
+            </button>
+          )}
+          <p className='login-help'>ログインできない場合は、組織の管理者へお問い合わせください。</p>
+        </div>
+      </section>
+    </main>
+  )
+}
+
 function App() {
   const [session, setSession] = useState<Session | null>(null)
+  const [authReady, setAuthReady] = useState(!isSupabaseConfigured)
+  const [authPending, setAuthPending] = useState(false)
+  const [authError, setAuthError] = useState('')
   const [orgId, setOrgId] = useState('org-main')
   const [userId, setUserId] = useState('admin')
   const [customers, setCustomers] = useState(() => load('customers', CUSTOMERS))
@@ -220,11 +277,42 @@ function App() {
   useEffect(() => save('settings', settings), [settings])
   useEffect(() => {
     if (!isSupabaseConfigured) return
-    supabase.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(next))
-    return () => data.subscription.unsubscribe()
+
+    let active = true
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return
+      if (error) setAuthError(authErrorText(error))
+      setSession(data.session)
+      setAuthReady(true)
+    })
+    const { data } = supabase.auth.onAuthStateChange((_event, next) => {
+      if (!active) return
+      setSession(next)
+      setAuthReady(true)
+      if (next) setAuthError('')
+    })
+    return () => {
+      active = false
+      data.subscription.unsubscribe()
+    }
   }, [])
 
+  const handleGoogleLogin = async () => {
+    setAuthPending(true)
+    setAuthError('')
+    try {
+      const providerEnabled = await isGoogleProviderEnabled()
+      if (!providerEnabled) {
+        setAuthError('Googleログインがまだ有効化されていません。管理者がSupabaseのGoogle providerを設定するまでお待ちください。')
+        setAuthPending(false)
+        return
+      }
+      await signInWithGoogle()
+    } catch (error) {
+      setAuthError(authErrorText(error))
+      setAuthPending(false)
+    }
+  }
 
   const stats = useMemo(() => ({
     total: orgQuotes.reduce((sum, quote) => sum + quote.amount, 0),
@@ -406,6 +494,10 @@ function App() {
     setPreview({ kind: 'quote', quote: { id: 'draft', orgId, quoteNo: editingQuote ? quotes.find((quote) => quote.id === editingQuote)?.quoteNo ?? nextQuoteNo : nextQuoteNo, customerId: customer.id, customerName: customer.name, project, amount: currentTotals.total, status: 'Pending', createdAt: now(), updatedAt: now(), memo, lines, notes: [] } })
   }
   const selectedCustomerData = orgCustomers.find((customer) => customer.id === selectedCustomer)
+
+  if (isSupabaseConfigured && (!authReady || !session)) {
+    return <LoginScreen checking={!authReady} pending={authPending} error={authError} onGoogleLogin={() => void handleGoogleLogin()} />
+  }
 
   return (
     <div className="app-shell">
