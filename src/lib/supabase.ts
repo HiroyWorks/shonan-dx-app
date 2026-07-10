@@ -10,15 +10,34 @@ export const supabase = createClient(
   supabaseAnonKey || 'placeholder-anon-key',
 )
 
-export const signInWithGoogle = async () => {
-  if (!isSupabaseConfigured) return
+type AuthSettings = {
+  external?: Record<string, boolean>
+}
 
-  await supabase.auth.signInWithOAuth({
+export const isGoogleProviderEnabled = async () => {
+  if (!isSupabaseConfigured) return false
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/settings`, {
+    headers: { apikey: supabaseAnonKey },
+  })
+
+  if (!response.ok) throw new Error('ログイン設定を確認できませんでした。')
+
+  const settings = await response.json() as AuthSettings
+  return settings.external?.google === true
+}
+
+export const signInWithGoogle = async () => {
+  if (!isSupabaseConfigured) throw new Error('Supabaseが設定されていません。')
+
+  const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
       redirectTo: window.location.origin + window.location.pathname,
     },
   })
+
+  if (error) throw error
 }
 
 export const signOut = async () => {
