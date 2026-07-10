@@ -2,7 +2,16 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import './App.css'
-import { isGoogleProviderEnabled, isSupabaseConfigured, signInWithGoogle, signOut, supabase } from './lib/supabase'
+import {
+  isGoogleProviderEnabled,
+  isSupabaseConfigured,
+  loadCompanyPlanAccess,
+  signInWithGoogle,
+  signOut,
+  supabase,
+  updateCompanyPlan,
+  type CompanyPlanAccess,
+} from './lib/supabase'
 
 void React
 
@@ -22,7 +31,7 @@ type Quote = { id: string; orgId: string; quoteNo: string; customerId: string; c
 type Invoice = { id: string; orgId: string; invoiceNo: string; quoteId: string; customerName: string; amount: number; createdAt: string }
 type ActivityKind = 'quote-created' | 'quote-updated' | 'status-updated' | 'invoice-created' | 'memo-added'
 type Activity = { id: string; orgId: string; kind: ActivityKind; title: string; description: string; createdAt: string }
-type Settings = { taxRate: number; plan: Plan; prefix: string; year: number; nextNo: number }
+type Settings = { taxRate: number; prefix: string; year: number; nextNo: number }
 type Preview = { kind: 'quote'; quote: Quote } | { kind: 'invoice'; quote: Quote; invoice: Invoice }
 
 const ORGS: Org[] = [
@@ -124,6 +133,15 @@ const makeInitialActivities = (sourceQuotes: Quote[] = QUOTES, sourceInvoices: I
 }
 const load = <T,>(name: string, fallback: T): T => {
   try { const raw = localStorage.getItem(`${KEY}:${name}`); return raw ? JSON.parse(raw) as T : fallback } catch { return fallback }
+}
+const loadSettings = (): Settings => {
+  const stored = load<Settings>('settings', { taxRate: 10, prefix: 'Q', year: 2026, nextNo: 42 })
+  return {
+    taxRate: stored.taxRate,
+    prefix: stored.prefix,
+    year: stored.year,
+    nextNo: stored.nextNo,
+  }
 }
 const save = <T,>(name: string, value: T) => localStorage.setItem(`${KEY}:${name}`, JSON.stringify(value))
 const lineFrom = (item: Item): Line => ({ id: id('line'), itemId: item.id, name: item.name, unitPrice: item.unitPrice, quantity: 1, unit: item.unit, taxKind: item.taxKind ?? 'taxable' })
@@ -228,6 +246,9 @@ function App() {
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured)
   const [authPending, setAuthPending] = useState(false)
   const [authError, setAuthError] = useState('')
+  const [planAccess, setPlanAccess] = useState<CompanyPlanAccess>({ companies: [], isPlatformAdmin: false })
+  const [planLoading, setPlanLoading] = useState(isSupabaseConfigured)
+  const [planPendingCompanyId, setPlanPendingCompanyId] = useState<string | null>(null)
   const [orgId, setOrgId] = useState('org-main')
   const [userId, setUserId] = useState('admin')
   const [customers, setCustomers] = useState(() => load('customers', CUSTOMERS))
@@ -238,7 +259,7 @@ function App() {
     const stored = load<Activity[]>('activities', [])
     return stored.length ? stored : makeInitialActivities(load('quotes', QUOTES), load('invoices', INVOICES))
   })
-  const [settings, setSettings] = useState<Settings>(() => load('settings', { taxRate: 10, plan: 'free', prefix: 'Q', year: 2026, nextNo: 42 }))
+  const [settings, setSettings] = useState<Settings>(loadSettings)
   const [customerDraft, setCustomerDraft] = useState({ name: '', contact: '', email: '', memo: '' })
   const [editingCustomer, setEditingCustomer] = useState<string | null>(null)
   const [itemDraft, setItemDraft] = useState<{ name: string; category: string; unitPrice: number; unit: string; taxKind: TaxKind }>({ name: '', category: '', unitPrice: 0, unit: '式', taxKind: 'taxable' })
@@ -266,7 +287,10 @@ function App() {
   const currentTotals = useMemo(() => totals(lines, settings.taxRate), [lines, settings.taxRate])
   const noteQuote = quotes.find((quote) => quote.id === noteQuoteId) ?? null
   const isAdmin = user.role === 'admin'
-  const canAddQuote = settings.plan === 'pro' || orgQuotes.length < FREE_LIMIT
+  const currentCompanyPlan = planAccess.companies.find((company) => company.name === org.company) ?? planAccess.companies[0]
+  const activePlan = currentCompanyPlan?.plan ?? 'free'
+  const activeFreeQuoteLimit = currentCompanyPlan?.freeQuoteLimit ?? FREE_LIMIT
+  const canAddQuote = activePlan === 'pro' || orgQuotes.length < activeFreeQuoteLimit
   const nextQuoteNo = `${settings.prefix}-${settings.year}-${String(settings.nextNo).padStart(3, '0')}`
 
   useEffect(() => save('customers', customers), [customers])
@@ -296,6 +320,27 @@ function App() {
       data.subscription.unsubscribe()
     }
   }, [])
+  useEffect(() => {
+    if (!isSupabaseConfigured || !session) return
+
+    let active = true
+    void loadCompanyPlanAccess(session.user.id)
+      .then((access) => {
+        if (!active) return
+        setPlanAccess(access)
+      })
+      .catch(() => {
+        if (!active) return
+        setMessage('契約プランを取得できませんでした。時間をおいて再読み込みしてください。')
+      })
+      .finally(() => {
+        if (active) setPlanLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [session])
 
   const handleGoogleLogin = async () => {
     setAuthPending(true)
@@ -311,6 +356,24 @@ function App() {
     } catch (error) {
       setAuthError(authErrorText(error))
       setAuthPending(false)
+    }
+  }
+
+  const handlePlanChange = async (companyId: string, plan: Plan) => {
+    if (!planAccess.isPlatformAdmin || planPendingCompanyId) return
+
+    setPlanPendingCompanyId(companyId)
+    try {
+      const updated = await updateCompanyPlan(companyId, plan)
+      setPlanAccess((previous) => ({
+        ...previous,
+        companies: previous.companies.map((company) => company.id === updated.id ? updated : company),
+      }))
+      setMessage(`${updated.name} の契約プランを ${plan === 'pro' ? 'Pro' : 'Free'} に変更しました。`)
+    } catch {
+      setMessage('契約プランを変更できませんでした。管理者権限を確認してください。')
+    } finally {
+      setPlanPendingCompanyId(null)
     }
   }
 
@@ -381,7 +444,7 @@ function App() {
   const submitQuote = () => {
     const customer = customers.find((candidate) => candidate.id === selectedCustomer)
     if (!customer) return setMessage('顧客を選択してください。')
-    if (!canAddQuote && !editingQuote) return setMessage(`フリープランは見積${FREE_LIMIT}件までです。Proに切り替えると制限を解除できます。`)
+    if (!canAddQuote && !editingQuote) return setMessage(`フリープランは見積${activeFreeQuoteLimit}件までです。Proへの変更は運営管理者へお問い合わせください。`)
     const eventAt = now()
     const old = editingQuote ? quotes.find((quote) => quote.id === editingQuote) : undefined
     const quote: Quote = {
@@ -550,8 +613,42 @@ function App() {
         </>}
         {activePage === 'settings' && <>
         <section className="panel settings-panel">
-          <div className="panel-head"><div><p className="eyebrow">Settings</p><h2>設定</h2></div><p className="section-note">会社、組織、ユーザー、見積番号、税率、プランを管理します。</p></div>
-          <div className="settings-page"><section className="workspace-panel"><label><span>会社 / 組織</span><select value={orgId} onChange={(event) => changeOrganization(event.target.value)}>{ORGS.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.company} / {candidate.name}</option>)}</select></label><label><span>ユーザー / ロール</span><select value={userId} onChange={(event) => setUserId(event.target.value)}>{USERS.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} / {candidate.role === 'admin' ? '管理者' : '担当者'}</option>)}</select></label><div className="workspace-meta"><strong>{org.company}</strong><span>{org.name} のデータだけを表示中</span></div></section><div className="settings-card"><div className="settings-card-head"><p className="eyebrow">Quote rules</p><h3>見積・税率設定</h3></div><div className="settings-strip"><label><span>見積番号</span><input value={settings.prefix} onChange={(event) => setSettings((prev) => ({ ...prev, prefix: event.target.value || 'Q' }))} /></label><label><span>次番号</span><input type="number" value={settings.nextNo} onChange={(event) => setSettings((prev) => ({ ...prev, nextNo: Math.max(1, Number(event.target.value) || 1) }))} /></label><label><span>税率</span><input type="number" value={settings.taxRate} onChange={(event) => setSettings((prev) => ({ ...prev, taxRate: Math.max(0, Number(event.target.value) || 0) }))} /></label><label><span>プラン</span><select value={settings.plan} onChange={(event) => setSettings((prev) => ({ ...prev, plan: event.target.value as Plan }))}><option value="free">Free（{FREE_LIMIT}件まで）</option><option value="pro">Pro（制限解除）</option></select></label></div></div></div>
+          <div className="panel-head"><div><p className="eyebrow">Settings</p><h2>設定</h2></div><p className="section-note">会社、組織、ユーザー、見積番号、税率を管理し、契約プランを確認します。</p></div>
+          <div className="settings-page">
+            <section className="workspace-panel">
+              <label><span>会社 / 組織</span><select value={orgId} onChange={(event) => changeOrganization(event.target.value)}>{ORGS.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.company} / {candidate.name}</option>)}</select></label>
+              <label><span>ユーザー / ロール</span><select value={userId} onChange={(event) => setUserId(event.target.value)}>{USERS.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} / {candidate.role === 'admin' ? '管理者' : '担当者'}</option>)}</select></label>
+              <div className="workspace-meta"><strong>{org.company}</strong><span>{org.name} のデータだけを表示中</span></div>
+            </section>
+            <div className="settings-card">
+              <div className="settings-card-head"><p className="eyebrow">Quote rules</p><h3>見積・税率設定</h3></div>
+              <div className="settings-strip">
+                <label><span>見積番号</span><input value={settings.prefix} onChange={(event) => setSettings((prev) => ({ ...prev, prefix: event.target.value || 'Q' }))} /></label>
+                <label><span>次番号</span><input type="number" value={settings.nextNo} onChange={(event) => setSettings((prev) => ({ ...prev, nextNo: Math.max(1, Number(event.target.value) || 1) }))} /></label>
+                <label><span>税率</span><input type="number" value={settings.taxRate} onChange={(event) => setSettings((prev) => ({ ...prev, taxRate: Math.max(0, Number(event.target.value) || 0) }))} /></label>
+              </div>
+            </div>
+            <div className="settings-card">
+              <div className="settings-card-head"><p className="eyebrow">Contract plans</p><h3>契約プラン</h3></div>
+              <p className="plan-admin-note">{planAccess.isPlatformAdmin ? '運営管理者として、契約会社のプランを変更できます。' : '契約プランは運営管理者だけが変更できます。'}</p>
+              {planLoading ? <p className="plan-empty">契約プランを確認しています…</p> : planAccess.companies.length === 0 ? <p className="plan-empty">所属会社の契約プランが見つかりません。運営管理者へお問い合わせください。</p> : (
+                <div className="plan-list">
+                  {planAccess.companies.map((company) => (
+                    <article className="plan-row" key={company.id}>
+                      <div><strong>{company.name}</strong><span>{company.plan === 'pro' ? '見積件数の制限なし' : '見積' + company.freeQuoteLimit + '件まで'}</span></div>
+                      <label>
+                        <span>契約プラン</span>
+                        <select value={company.plan} disabled={!planAccess.isPlatformAdmin || planPendingCompanyId !== null} onChange={(event) => void handlePlanChange(company.id, event.target.value as Plan)}>
+                          <option value="free">Free</option>
+                          <option value="pro">Pro</option>
+                        </select>
+                      </label>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </section>
         </>}
       </main>

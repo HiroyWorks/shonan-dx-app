@@ -102,6 +102,51 @@
   justify-content: flex-start;
 }
 
+.plan-admin-note,
+.plan-empty {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.7;
+}
+
+.plan-list {
+  display: grid;
+  gap: 10px;
+}
+
+.plan-row {
+  border: 1px solid #e2e0db;
+  border-radius: 16px;
+  background: #fff;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.plan-row > div,
+.plan-row label {
+  display: grid;
+  gap: 5px;
+}
+
+.plan-row span {
+  color: #64748b;
+  font-size: .82rem;
+  font-weight: 700;
+}
+
+.plan-row select {
+  min-width: 150px;
+}
+
+.plan-row select:disabled {
+  cursor: not-allowed;
+  background: #f1f5f9;
+  color: #475569;
+}
+
 .invoice-table {
   min-width: 860px;
 }
@@ -129,6 +174,11 @@
 @media (max-width: 720px) {
   .sidebar-nav {
     grid-template-columns: 1fr;
+  }
+
+  .plan-row {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 
