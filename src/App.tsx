@@ -23,7 +23,7 @@ type TaxKind = 'taxable' | 'exempt'
 type Page = 'dashboard' | 'quote' | 'invoices' | 'customers' | 'items' | 'settings'
 type Org = { id: string; company: string; name: string }
 type User = { id: string; name: string; email: string; role: Role; orgId: string }
-type Customer = { id: string; orgId: string; name: string; contact: string; email: string; memo: string }
+type Customer = { id: string; orgId: string; name: string; address: string; phone: string; contact: string; contactTitle: string; email: string; invoiceRegistrationNo: string; memo: string }
 type Item = { id: string; orgId: string; name: string; category: string; unitPrice: number; unit: string; taxKind?: TaxKind }
 type Line = { id: string; itemId: string; name: string; unitPrice: number; quantity: number; unit: string; taxKind?: TaxKind; isCustom?: boolean }
 type Note = { id: string; body: string; author: string; createdAt: string }
@@ -31,7 +31,22 @@ type Quote = { id: string; orgId: string; quoteNo: string; customerId: string; c
 type Invoice = { id: string; orgId: string; invoiceNo: string; quoteId: string; customerName: string; amount: number; createdAt: string }
 type ActivityKind = 'quote-created' | 'quote-updated' | 'status-updated' | 'invoice-created' | 'memo-added'
 type Activity = { id: string; orgId: string; kind: ActivityKind; title: string; description: string; createdAt: string }
-type Settings = { taxRate: number; prefix: string; year: number; nextNo: number }
+type Settings = { taxRate: number; prefix: string; year: number; nextNo: number; invoiceRegistrationNo: string }
+type StorageName = 'customers' | 'items' | 'quotes' | 'invoices' | 'activities' | 'settings'
+type LocalBackup = {
+  namespace: typeof KEY
+  version: 1
+  exportedAt: string
+  source: 'shonan-dx-app-localStorage'
+  data: {
+    customers: Customer[]
+    items: Item[]
+    quotes: Quote[]
+    invoices: Invoice[]
+    activities: Activity[]
+    settings: Settings
+  }
+}
 type Preview = { kind: 'quote'; quote: Quote } | { kind: 'invoice'; quote: Quote; invoice: Invoice }
 
 const ORGS: Org[] = [
@@ -43,11 +58,11 @@ const USERS: User[] = [
   { id: 'member', name: '担当者ユーザー', email: 'member@example.com', role: 'member', orgId: 'org-main' },
 ]
 const CUSTOMERS: Customer[] = [
-  { id: 'c-minato', orgId: 'org-main', name: '株式会社みなと企画', contact: '佐藤様', email: 'sato@minato.example', memo: 'Web案件が多い。月初に見積確認が入りやすい。' },
-  { id: 'c-bakery', orgId: 'org-main', name: '湘南ベーカリー', contact: '山口様', email: 'info@bakery.example', memo: '写真素材の支給タイミングに注意。' },
-  { id: 'c-clinic', orgId: 'org-main', name: '藤沢クリニック', contact: '採用担当様', email: 'hr@clinic.example', memo: '公開前チェックは院長確認あり。' },
-  { id: 'c-kamakura', orgId: 'org-main', name: '鎌倉工務店', contact: '代表様', email: 'hello@kamakura.example', memo: '保守更新は四半期ごとに提案。' },
-  { id: 'c-other', orgId: 'org-backoffice', name: '社内管理用サンプル', contact: '経理担当', email: 'accounting@example.com', memo: '別組織のサンプル。' },
+  { id: 'c-minato', orgId: 'org-main', name: '株式会社みなと企画', address: '', phone: '', contact: '佐藤様', contactTitle: '', email: 'sato@minato.example', invoiceRegistrationNo: '', memo: 'Web案件が多い。月初に見積確認が入りやすい。' },
+  { id: 'c-bakery', orgId: 'org-main', name: '湘南ベーカリー', address: '', phone: '', contact: '山口様', contactTitle: '', email: 'info@bakery.example', invoiceRegistrationNo: '', memo: '写真素材の支給タイミングに注意。' },
+  { id: 'c-clinic', orgId: 'org-main', name: '藤沢クリニック', address: '', phone: '', contact: '採用担当様', contactTitle: '', email: 'hr@clinic.example', invoiceRegistrationNo: '', memo: '公開前チェックは院長確認あり。' },
+  { id: 'c-kamakura', orgId: 'org-main', name: '鎌倉工務店', address: '', phone: '', contact: '代表様', contactTitle: '', email: 'hello@kamakura.example', invoiceRegistrationNo: '', memo: '保守更新は四半期ごとに提案。' },
+  { id: 'c-other', orgId: 'org-backoffice', name: '社内管理用サンプル', address: '', phone: '', contact: '経理担当', contactTitle: '', email: 'accounting@example.com', invoiceRegistrationNo: '', memo: '別組織のサンプル。' },
 ]
 const ITEMS: Item[] = [
   { id: 'i-site', orgId: 'org-main', name: 'Webサイト制作', category: '制作', unitPrice: 180000, unit: '式', taxKind: 'taxable' },
@@ -67,6 +82,7 @@ const QUOTES: Quote[] = [
 const INVOICES: Invoice[] = [{ id: 'inv-001', orgId: 'org-main', invoiceNo: 'INV-2026-001', quoteId: 'q-036', customerName: '鎌倉工務店', amount: 198000, createdAt: '2026-05-25' }]
 const FREE_LIMIT = Number(import.meta.env.VITE_APP_FREE_QUOTE_LIMIT ?? 20)
 const KEY = 'estimate-management-v3'
+const LOCAL_SAVE_ERROR = 'ブラウザ保存に失敗しました。設定画面からJSONバックアップを取得し、空き容量やブラウザ設定を確認してください。'
 const statusText: Record<QuoteStatus, string> = { Pending: '返答待ち', Won: '成約', Invoiced: '請求済' }
 const activityText: Record<ActivityKind, string> = {
   'quote-created': '見積作成',
@@ -83,6 +99,16 @@ const navItems: { page: Page; label: string; description: string }[] = [
   { page: 'items', label: '品目マスタ', description: '単価・単位管理' },
   { page: 'settings', label: '設定', description: '組織・番号・税率' },
 ]
+const normalizeCustomers = (value: Customer[]) => value.map((customer) => ({
+  ...customer,
+  address: customer.address ?? '',
+  phone: customer.phone ?? '',
+  contact: customer.contact ?? '',
+  contactTitle: customer.contactTitle ?? '',
+  email: customer.email ?? '',
+  invoiceRegistrationNo: customer.invoiceRegistrationNo ?? '',
+  memo: customer.memo ?? '',
+}))
 const normalizeItems = (value: Item[]) => {
   const fallbackExempt = ITEMS.find((item) => item.id === 'i-travel')
   const normalized = value.map((item) => ({ ...item, taxKind: item.taxKind ?? 'taxable' }))
@@ -134,16 +160,43 @@ const makeInitialActivities = (sourceQuotes: Quote[] = QUOTES, sourceInvoices: I
 const load = <T,>(name: string, fallback: T): T => {
   try { const raw = localStorage.getItem(`${KEY}:${name}`); return raw ? JSON.parse(raw) as T : fallback } catch { return fallback }
 }
-const loadSettings = (): Settings => {
-  const stored = load<Settings>('settings', { taxRate: 10, prefix: 'Q', year: 2026, nextNo: 42 })
+const normalizeSettings = (stored: Settings): Settings => {
   return {
     taxRate: stored.taxRate,
     prefix: stored.prefix,
     year: stored.year,
     nextNo: stored.nextNo,
+    invoiceRegistrationNo: stored.invoiceRegistrationNo ?? '',
   }
 }
+const loadSettings = (): Settings => normalizeSettings(load<Settings>('settings', { taxRate: 10, prefix: 'Q', year: 2026, nextNo: 42, invoiceRegistrationNo: '' }))
 const save = <T,>(name: string, value: T) => localStorage.setItem(`${KEY}:${name}`, JSON.stringify(value))
+const saveLocalData = <T,>(name: StorageName, value: T, onError: () => void) => {
+  try {
+    save(name, value)
+  } catch {
+    onError()
+  }
+}
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
+const isSettings = (value: unknown): value is Settings => {
+  return isRecord(value)
+    && typeof value.taxRate === 'number'
+    && typeof value.prefix === 'string'
+    && typeof value.year === 'number'
+    && typeof value.nextNo === 'number'
+    && (value.invoiceRegistrationNo === undefined || typeof value.invoiceRegistrationNo === 'string')
+}
+const isLocalBackup = (value: unknown): value is LocalBackup => {
+  if (!isRecord(value) || value.namespace !== KEY || value.version !== 1 || !isRecord(value.data)) return false
+  const data = value.data
+  return Array.isArray(data.customers)
+    && Array.isArray(data.items)
+    && Array.isArray(data.quotes)
+    && Array.isArray(data.invoices)
+    && Array.isArray(data.activities)
+    && isSettings(data.settings)
+}
 const lineFrom = (item: Item): Line => ({ id: id('line'), itemId: item.id, name: item.name, unitPrice: item.unitPrice, quantity: 1, unit: item.unit, taxKind: item.taxKind ?? 'taxable' })
 const customLine = (): Line => ({ id: id('line'), itemId: `custom-${id('item')}`, name: '自由入力項目', unitPrice: 0, quantity: 1, unit: '式', taxKind: 'taxable', isCustom: true })
 const subtotal = (lines: Line[]) => lines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0)
@@ -157,11 +210,13 @@ const totals = (lines: Line[], taxRate: number) => {
   return { sub, taxable, tax, total: sub + tax }
 }
 const taxKindText = (taxKind?: TaxKind) => taxKind === 'exempt' ? '非課税' : '課税'
+const customerContactText = (customer: Customer) => [customer.contactTitle, customer.contact].filter(Boolean).join(' ') || '未登録'
+const customerSummary = (customer: Customer) => `住所: ${customer.address || '未登録'} / 電話: ${customer.phone || '未登録'} / 担当者: ${customerContactText(customer)} / メール: ${customer.email || '未登録'} / INVOICE NO.（企業コード）: ${customer.invoiceRegistrationNo || '未登録'} / ${customer.memo}`
 function StatusBadge({ status }: { status: QuoteStatus }) {
   return <span className={`badge badge-${status.toLowerCase()}`}>{statusText[status]}</span>
 }
 
-function PreviewPaper({ target, taxRate }: { target: Preview; taxRate: number }) {
+function PreviewPaper({ target, taxRate, invoiceRegistrationNo }: { target: Preview; taxRate: number; invoiceRegistrationNo: string }) {
   const quote = target.quote
   const total = totals(quote.lines, taxRate)
   const isInvoice = target.kind === 'invoice'
@@ -173,7 +228,7 @@ function PreviewPaper({ target, taxRate }: { target: Preview; taxRate: number })
       </div>
       <div className="paper-meta">
         <div className="paper-box"><span>宛先</span><strong>{quote.customerName} 御中</strong><p>{quote.project}</p></div>
-        <div className="paper-box"><span>発行者</span><strong>Estimate management</strong><p>湘南DX合同会社 / 制作事業部</p><p>Supabase + Google認証対応</p></div>
+        <div className="paper-box"><span>発行者</span><strong>Estimate Management</strong><p>湘南DX合同会社 / 制作事業部</p><p>INVOICE NO.（企業コード）: {invoiceRegistrationNo || '未設定'}</p></div>
       </div>
       <table className="paper-table">
         <thead><tr><th>品目</th><th>税区分</th><th>単価</th><th>数量</th><th>金額</th></tr></thead>
@@ -205,16 +260,18 @@ type LoginScreenProps = {
 function LoginScreen({ checking, pending, error, onGoogleLogin }: LoginScreenProps) {
   return (
     <main className='login-page'>
-      <section className='login-visual' aria-hidden='true'>
+      <section className='login-visual'>
         <div className='login-visual-content'>
-          <p className='eyebrow'>Estimate management</p>
-          <h1>見積業務を、<br />ひとつのワークスペースに。</h1>
-          <p>顧客・品目・見積・請求書を、組織ごとに安全に管理します。</p>
+          <p className='eyebrow'>Shonan DX Lab / 見積管理・請求書作成アプリ</p>
+          <h1>Estimate Management</h1>
+          <p>見積から請求まで、仕事の流れを整える。</p>
+          <p>現在はベータ版です。業務データはブラウザ内に保存され、正式運用前の検証に利用します。</p>
           <div className='login-feature-list'>
             <span>見積作成と進捗管理</span>
             <span>請求書へのスムーズな変換</span>
             <span>組織単位のアクセス制御</span>
           </div>
+          <a className='login-site-link' href='https://shonan-dx.com/' target='_blank' rel='noreferrer'>湘南DXラボ 本体サイトへ</a>
         </div>
       </section>
       <section className='login-panel'>
@@ -224,6 +281,7 @@ function LoginScreen({ checking, pending, error, onGoogleLogin }: LoginScreenPro
             <p className='eyebrow'>Welcome back</p>
             <h2>ログイン</h2>
             <p className='login-description'>招待されたGoogleアカウントでログインしてください。</p>
+            <p className='login-safety-note'>顧客・品目・見積・請求書はまだSupabaseへ保存されません。重要データは設定画面からJSONバックアップを取得してください。</p>
           </div>
           {error && <div className='login-error' role='alert'>{error}</div>}
           {checking ? (
@@ -241,6 +299,41 @@ function LoginScreen({ checking, pending, error, onGoogleLogin }: LoginScreenPro
   )
 }
 
+type UnitPriceInputProps = {
+  value: number
+  onChange: (value: number) => void
+}
+
+function UnitPriceInput({ value, onChange }: UnitPriceInputProps) {
+  const [draft, setDraft] = useState(String(value))
+
+  const updateDraft = (next: string) => {
+    if (!/^\d*$/.test(next)) return
+    setDraft(next)
+    if (next !== '') onChange(Number(next))
+  }
+
+  const commitDraft = () => {
+    const next = Math.max(0, Math.trunc(Number(draft) || 0))
+    setDraft(String(next))
+    onChange(next)
+  }
+
+  return (
+    <input
+      type='number'
+      min='0'
+      step='1'
+      inputMode='numeric'
+      aria-label='単価'
+      value={draft}
+      onFocus={(event) => event.currentTarget.select()}
+      onChange={(event) => updateDraft(event.target.value)}
+      onBlur={commitDraft}
+    />
+  )
+}
+
 function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured)
@@ -251,7 +344,7 @@ function App() {
   const [planPendingCompanyId, setPlanPendingCompanyId] = useState<string | null>(null)
   const [orgId, setOrgId] = useState('org-main')
   const [userId, setUserId] = useState('admin')
-  const [customers, setCustomers] = useState(() => load('customers', CUSTOMERS))
+  const [customers, setCustomers] = useState(() => normalizeCustomers(load('customers', CUSTOMERS)))
   const [items, setItems] = useState(() => normalizeItems(load('items', ITEMS)))
   const [quotes, setQuotes] = useState(() => load('quotes', QUOTES))
   const [invoices, setInvoices] = useState(() => load('invoices', INVOICES))
@@ -260,7 +353,7 @@ function App() {
     return stored.length ? stored : makeInitialActivities(load('quotes', QUOTES), load('invoices', INVOICES))
   })
   const [settings, setSettings] = useState<Settings>(loadSettings)
-  const [customerDraft, setCustomerDraft] = useState({ name: '', contact: '', email: '', memo: '' })
+  const [customerDraft, setCustomerDraft] = useState<Omit<Customer, 'id' | 'orgId'>>({ name: '', address: '', phone: '', contact: '', contactTitle: '', email: '', invoiceRegistrationNo: '', memo: '' })
   const [editingCustomer, setEditingCustomer] = useState<string | null>(null)
   const [itemDraft, setItemDraft] = useState<{ name: string; category: string; unitPrice: number; unit: string; taxKind: TaxKind }>({ name: '', category: '', unitPrice: 0, unit: '式', taxKind: 'taxable' })
   const [editingItem, setEditingItem] = useState<string | null>(null)
@@ -293,12 +386,12 @@ function App() {
   const canAddQuote = activePlan === 'pro' || orgQuotes.length < activeFreeQuoteLimit
   const nextQuoteNo = `${settings.prefix}-${settings.year}-${String(settings.nextNo).padStart(3, '0')}`
 
-  useEffect(() => save('customers', customers), [customers])
-  useEffect(() => save('items', items), [items])
-  useEffect(() => save('quotes', quotes), [quotes])
-  useEffect(() => save('invoices', invoices), [invoices])
-  useEffect(() => save('activities', activities), [activities])
-  useEffect(() => save('settings', settings), [settings])
+  useEffect(() => saveLocalData('customers', customers, () => setMessage(LOCAL_SAVE_ERROR)), [customers])
+  useEffect(() => saveLocalData('items', items, () => setMessage(LOCAL_SAVE_ERROR)), [items])
+  useEffect(() => saveLocalData('quotes', quotes, () => setMessage(LOCAL_SAVE_ERROR)), [quotes])
+  useEffect(() => saveLocalData('invoices', invoices, () => setMessage(LOCAL_SAVE_ERROR)), [invoices])
+  useEffect(() => saveLocalData('activities', activities, () => setMessage(LOCAL_SAVE_ERROR)), [activities])
+  useEffect(() => saveLocalData('settings', settings, () => setMessage(LOCAL_SAVE_ERROR)), [settings])
   useEffect(() => {
     if (!isSupabaseConfigured) return
 
@@ -375,6 +468,65 @@ function App() {
     } finally {
       setPlanPendingCompanyId(null)
     }
+  }
+
+  const exportLocalBackup = () => {
+    const backup: LocalBackup = {
+      namespace: KEY,
+      version: 1,
+      exportedAt: now(),
+      source: 'shonan-dx-app-localStorage',
+      data: { customers, items, quotes, invoices, activities, settings },
+    }
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `shonan-dx-app-backup-${today()}.json`
+    document.body.append(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 0)
+    setMessage('ローカルデータのJSONバックアップを作成しました。')
+  }
+
+  const importLocalBackup = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!window.confirm('現在のローカルデータを、選択したJSONバックアップで上書きします。実行しますか？')) return
+
+    const reader = new FileReader()
+    reader.onerror = () => setMessage('JSONバックアップを読み込めませんでした。ファイルを確認してください。')
+    reader.onload = () => {
+      try {
+        const parsed: unknown = JSON.parse(String(reader.result ?? ''))
+        if (!isLocalBackup(parsed)) {
+          setMessage('shonan-dx-appのJSONバックアップとして読み込めませんでした。')
+          return
+        }
+        const data = parsed.data
+        const normalizedCustomers = normalizeCustomers(data.customers)
+        const normalizedItems = normalizeItems(data.items)
+        setCustomers(normalizedCustomers)
+        setItems(normalizedItems)
+        setQuotes(data.quotes)
+        setInvoices(data.invoices)
+        setActivities(data.activities)
+        setSettings(normalizeSettings(data.settings))
+        const firstCustomer = normalizedCustomers.find((customer) => customer.orgId === orgId) ?? normalizedCustomers[0]
+        const firstItem = normalizedItems.find((item) => item.orgId === orgId) ?? normalizedItems[0]
+        if (firstCustomer) setSelectedCustomer(firstCustomer.id)
+        if (firstItem) setLines([lineFrom(firstItem)])
+        setEditingQuote(null)
+        setEditingCustomer(null)
+        setEditingItem(null)
+        setMessage('JSONバックアップを読み込み、ローカルデータを復元しました。')
+      } catch {
+        setMessage('JSONの解析に失敗しました。バックアップファイルの内容を確認してください。')
+      }
+    }
+    reader.readAsText(file, 'utf-8')
   }
 
   const stats = useMemo(() => ({
@@ -523,7 +675,7 @@ function App() {
       setCustomers((prev) => [customer, ...prev])
       setSelectedCustomer(customer.id)
     }
-    setCustomerDraft({ name: '', contact: '', email: '', memo: '' })
+    setCustomerDraft({ name: '', address: '', phone: '', contact: '', contactTitle: '', email: '', invoiceRegistrationNo: '', memo: '' })
   }
   const deleteCustomer = (customer: Customer) => {
     if (orgQuotes.some((quote) => quote.customerId === customer.id)) return setMessage('見積に使われている顧客は削除できません。')
@@ -565,9 +717,17 @@ function App() {
   return (
     <div className="app-shell">
       <header className="topbar" data-ui-version="notion-clean-20260708">
-        <div><p className="eyebrow">Estimate management</p><h1>見積管理・作成アプリ</h1></div>
+        <div><p className="eyebrow">見積管理・請求書作成アプリ</p><h1>Estimate Management</h1></div>
         <div className="auth-card"><span className={isSupabaseConfigured ? 'sync-dot active' : 'sync-dot'} /><div><strong>{org.company} / {org.name}</strong><span>{user.name} / {user.role === 'admin' ? '管理者' : '担当者'} ・ {isSupabaseConfigured ? session?.user.email ?? 'Google未ログイン' : 'ローカルモード'}</span></div>{isSupabaseConfigured ? session ? <button className="btn ghost" onClick={() => void signOut()}>ログアウト</button> : <button className="btn primary" onClick={() => void signInWithGoogle()}>Googleでログイン</button> : null}</div>
       </header>
+      <section className="phase-banner" role="status" aria-label="ベータ版の保存状態">
+        <div>
+          <p className="eyebrow">Beta / Local storage</p>
+          <strong>正式運用前の検証モードです。</strong>
+          <span>Googleログインと契約プランは本番DBに接続済みですが、顧客・品目・見積・請求書・更新履歴はこのブラウザだけに保存されます。</span>
+        </div>
+        <button className="btn ghost" type="button" onClick={() => setActivePage('settings')}>JSONバックアップへ</button>
+      </section>
       <div className="app-layout">
         <aside className="sidebar-nav" aria-label="メインメニュー">
           {navItems.map((item) => (
@@ -595,7 +755,7 @@ function App() {
         {activePage === 'quote' && <>
         <section className="panel quote-panel">
           <div className="panel-head"><div><p className="eyebrow">Speed quote</p><h2>{editingQuote ? '見積編集' : '見積入力'}</h2></div></div>
-          <div className="quote-layout"><div className="quote-form"><div className="field-grid"><label><span>顧客名</span><select value={selectedCustomer} onChange={(event) => setSelectedCustomer(event.target.value)}>{orgCustomers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label><label><span>案件名</span><input value={project} onChange={(event) => setProject(event.target.value)} /></label></div><div className="customer-hint">{selectedCustomerData ? `${selectedCustomerData.contact} / ${selectedCustomerData.email} / ${selectedCustomerData.memo}` : '顧客マスタを追加してください。'}</div><div className="form-table-wrap"><table className="line-table"><thead><tr><th>品目</th><th>税区分</th><th>単価</th><th>数量</th><th>金額</th><th></th></tr></thead><tbody>{lines.map((line) => <tr key={line.id}><td>{line.isCustom ? <input value={line.name} onChange={(event) => changeLine(line.id, 'name', event.target.value)} placeholder="自由入力項目" /> : <select value={line.itemId} onChange={(event) => changeLine(line.id, 'itemId', event.target.value)}>{orgItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}</td><td><select value={line.taxKind ?? 'taxable'} onChange={(event) => changeLine(line.id, 'taxKind', event.target.value)}><option value="taxable">課税</option><option value="exempt">非課税</option></select></td><td><input type="number" value={line.unitPrice} onChange={(event) => changeLine(line.id, 'unitPrice', event.target.value)} /></td><td><input type="number" value={line.quantity} onChange={(event) => changeLine(line.id, 'quantity', event.target.value)} /></td><td className="amount">{money(line.unitPrice * line.quantity)}</td><td><button disabled={lines.length === 1} onClick={() => setLines((prev) => prev.filter((candidate) => candidate.id !== line.id))}>x</button></td></tr>)}</tbody></table></div><div className="quote-footer"><div className="line-add-actions"><button className="btn ghost" onClick={() => orgItems[0] && setLines((prev) => [...prev, lineFrom(orgItems[0])])}>+ マスタ明細を追加</button><button className="btn ghost" onClick={() => setLines((prev) => [...prev, customLine()])}>+ 自由明細を追加</button></div><div className="summary-inline"><span>小計 {money(currentTotals.sub)}</span><span>課税対象 {money(currentTotals.taxable)}</span><span>消費税 {money(currentTotals.tax)}</span><strong>合計 {money(currentTotals.total)}</strong></div></div><label className="memo-field"><span>メモ</span><textarea value={memo} onChange={(event) => setMemo(event.target.value)} /></label><div className="quote-actions"><button className="btn ghost" onClick={resetForm}>入力をリセット</button><button className="btn ghost" onClick={draftPreview}>見積書を確認</button><button className="btn primary" onClick={submitQuote}>{editingQuote ? '更新する' : '提出する'}</button></div></div></div>
+          <div className="quote-layout"><div className="quote-form"><div className="field-grid"><label><span>顧客名</span><select value={selectedCustomer} onChange={(event) => setSelectedCustomer(event.target.value)}>{orgCustomers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label><label><span>案件名</span><input value={project} onChange={(event) => setProject(event.target.value)} /></label></div><div className="customer-hint">{selectedCustomerData ? customerSummary(selectedCustomerData) : '顧客マスタを追加してください。'}</div><div className="form-table-wrap"><table className="line-table"><thead><tr><th>品目</th><th>税区分</th><th>単価</th><th>数量</th><th>金額</th><th></th></tr></thead><tbody>{lines.map((line) => <tr key={line.id}><td>{line.isCustom ? <input value={line.name} onChange={(event) => changeLine(line.id, 'name', event.target.value)} placeholder="自由入力項目" /> : <select value={line.itemId} onChange={(event) => changeLine(line.id, 'itemId', event.target.value)}>{orgItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}</td><td><select value={line.taxKind ?? 'taxable'} onChange={(event) => changeLine(line.id, 'taxKind', event.target.value)}><option value="taxable">課税</option><option value="exempt">非課税</option></select></td><td><UnitPriceInput key={`${line.id}-${line.itemId}`} value={line.unitPrice} onChange={(value) => changeLine(line.id, 'unitPrice', String(value))} /></td><td><input type="number" value={line.quantity} onChange={(event) => changeLine(line.id, 'quantity', event.target.value)} /></td><td className="amount">{money(line.unitPrice * line.quantity)}</td><td><button disabled={lines.length === 1} onClick={() => setLines((prev) => prev.filter((candidate) => candidate.id !== line.id))}>x</button></td></tr>)}</tbody></table></div><div className="quote-footer"><div className="line-add-actions"><button className="btn ghost" onClick={() => orgItems[0] && setLines((prev) => [...prev, lineFrom(orgItems[0])])}>+ マスタ明細を追加</button><button className="btn ghost" onClick={() => setLines((prev) => [...prev, customLine()])}>+ 自由明細を追加</button></div><div className="summary-inline"><span>小計 {money(currentTotals.sub)}</span><span>課税対象 {money(currentTotals.taxable)}</span><span>消費税 {money(currentTotals.tax)}</span><strong>合計 {money(currentTotals.total)}</strong></div></div><label className="memo-field"><span>メモ</span><textarea value={memo} onChange={(event) => setMemo(event.target.value)} /></label><div className="quote-actions"><button className="btn ghost" onClick={resetForm}>入力をリセット</button><button className="btn ghost" onClick={draftPreview}>見積書を確認</button><button className="btn primary" onClick={submitQuote}>{editingQuote ? '更新する' : '提出する'}</button></div></div></div>
         </section>
         </>}
         {activePage === 'invoices' && <>
@@ -605,7 +765,7 @@ function App() {
         </section>
         </>}
         {activePage === 'customers' && <>
-<section className="panel"><div className="panel-head"><div><p className="eyebrow">Customer master</p><h2>顧客マスタ</h2></div></div><div className="master-form"><input placeholder="顧客名" value={customerDraft.name} onChange={(event) => setCustomerDraft({ ...customerDraft, name: event.target.value })} /><input placeholder="担当者" value={customerDraft.contact} onChange={(event) => setCustomerDraft({ ...customerDraft, contact: event.target.value })} /><input placeholder="メール" value={customerDraft.email} onChange={(event) => setCustomerDraft({ ...customerDraft, email: event.target.value })} /><textarea placeholder="メモ" value={customerDraft.memo} onChange={(event) => setCustomerDraft({ ...customerDraft, memo: event.target.value })} /><button className="btn primary" onClick={saveCustomer}>{editingCustomer ? '顧客を更新' : '顧客を追加'}</button></div><div className="master-list">{orgCustomers.map((customer) => <article key={customer.id}><strong>{customer.name}</strong><span>{customer.contact} / {customer.email}</span><p>{customer.memo}</p>{isAdmin && <div><button onClick={() => { setCustomerDraft({ name: customer.name, contact: customer.contact, email: customer.email, memo: customer.memo }); setEditingCustomer(customer.id) }}>編集</button><button onClick={() => deleteCustomer(customer)}>削除</button></div>}</article>)}</div></section>
+<section className="panel"><div className="panel-head"><div><p className="eyebrow">Customer master</p><h2>顧客マスタ</h2></div></div><div className="master-form"><input placeholder="顧客名" value={customerDraft.name} onChange={(event) => setCustomerDraft({ ...customerDraft, name: event.target.value })} /><input placeholder="住所" value={customerDraft.address} onChange={(event) => setCustomerDraft({ ...customerDraft, address: event.target.value })} /><input type="tel" placeholder="電話番号" value={customerDraft.phone} onChange={(event) => setCustomerDraft({ ...customerDraft, phone: event.target.value })} /><input placeholder="担当者" value={customerDraft.contact} onChange={(event) => setCustomerDraft({ ...customerDraft, contact: event.target.value })} /><input placeholder="担当者の役職" value={customerDraft.contactTitle} onChange={(event) => setCustomerDraft({ ...customerDraft, contactTitle: event.target.value })} /><input placeholder="メール" value={customerDraft.email} onChange={(event) => setCustomerDraft({ ...customerDraft, email: event.target.value })} /><input placeholder="INVOICE NO.（企業コード）" value={customerDraft.invoiceRegistrationNo} onChange={(event) => setCustomerDraft({ ...customerDraft, invoiceRegistrationNo: event.target.value })} /><textarea placeholder="メモ" value={customerDraft.memo} onChange={(event) => setCustomerDraft({ ...customerDraft, memo: event.target.value })} /><button className="btn primary" onClick={saveCustomer}>{editingCustomer ? '顧客を更新' : '顧客を追加'}</button></div><div className="master-list">{orgCustomers.map((customer) => <article key={customer.id}><strong>{customer.name}</strong><span>住所: {customer.address || '未登録'}</span><span>電話: {customer.phone || '未登録'} / メール: {customer.email || '未登録'}</span><span>担当者: {customerContactText(customer)}</span><span>INVOICE NO.（企業コード）: {customer.invoiceRegistrationNo || '未登録'}</span><p>{customer.memo}</p>{isAdmin && <div><button onClick={() => { setCustomerDraft({ name: customer.name, address: customer.address, phone: customer.phone, contact: customer.contact, contactTitle: customer.contactTitle, email: customer.email, invoiceRegistrationNo: customer.invoiceRegistrationNo, memo: customer.memo }); setEditingCustomer(customer.id) }}>編集</button><button onClick={() => deleteCustomer(customer)}>削除</button></div>}</article>)}</div></section>
         </>}
         {activePage === 'items' && <>
 <section className="panel"><div className="panel-head"><div><p className="eyebrow">Item master</p><h2>品目マスタ</h2></div></div><div className="master-form"><input placeholder="品目名" value={itemDraft.name} onChange={(event) => setItemDraft({ ...itemDraft, name: event.target.value })} /><input placeholder="カテゴリ" value={itemDraft.category} onChange={(event) => setItemDraft({ ...itemDraft, category: event.target.value })} /><input type="number" placeholder="単価" value={itemDraft.unitPrice} onChange={(event) => setItemDraft({ ...itemDraft, unitPrice: Math.max(0, Number(event.target.value) || 0) })} /><input placeholder="単位" value={itemDraft.unit} onChange={(event) => setItemDraft({ ...itemDraft, unit: event.target.value })} /><select value={itemDraft.taxKind} onChange={(event) => setItemDraft({ ...itemDraft, taxKind: event.target.value as TaxKind })}><option value="taxable">課税</option><option value="exempt">非課税</option></select><button className="btn primary" onClick={saveItem}>{editingItem ? '品目を更新' : '品目を追加'}</button></div><div className="master-list">{orgItems.map((item) => <article key={item.id}><strong>{item.name}</strong><span>{item.category} / {money(item.unitPrice)} / {item.unit} / {taxKindText(item.taxKind)}</span>{isAdmin && <div><button onClick={() => { setItemDraft({ name: item.name, category: item.category, unitPrice: item.unitPrice, unit: item.unit, taxKind: item.taxKind ?? 'taxable' }); setEditingItem(item.id) }}>編集</button><button onClick={() => deleteItem(item)}>削除</button></div>}</article>)}</div></section>
@@ -626,6 +786,25 @@ function App() {
                 <label><span>見積番号</span><input value={settings.prefix} onChange={(event) => setSettings((prev) => ({ ...prev, prefix: event.target.value || 'Q' }))} /></label>
                 <label><span>次番号</span><input type="number" value={settings.nextNo} onChange={(event) => setSettings((prev) => ({ ...prev, nextNo: Math.max(1, Number(event.target.value) || 1) }))} /></label>
                 <label><span>税率</span><input type="number" value={settings.taxRate} onChange={(event) => setSettings((prev) => ({ ...prev, taxRate: Math.max(0, Number(event.target.value) || 0) }))} /></label>
+                <label><span>INVOICE NO.（企業コード）</span><input value={settings.invoiceRegistrationNo} onChange={(event) => setSettings((prev) => ({ ...prev, invoiceRegistrationNo: event.target.value }))} /></label>
+              </div>
+            </div>
+            <div className="settings-card backup-card">
+              <div className="settings-card-head"><p className="eyebrow">Local backup</p><h3>ローカルデータのバックアップ</h3></div>
+              <p className="plan-admin-note">顧客、品目、見積、請求書、更新履歴、設定をJSONとして保存します。フェーズ1のDB移行が完了するまでは、作業前後にバックアップを取得してください。</p>
+              <div className="backup-summary" aria-label="バックアップ対象件数">
+                <span>顧客 {customers.length}件</span>
+                <span>品目 {items.length}件</span>
+                <span>見積 {quotes.length}件</span>
+                <span>請求書 {invoices.length}件</span>
+                <span>履歴 {activities.length}件</span>
+              </div>
+              <div className="backup-actions">
+                <button className="btn primary" type="button" onClick={exportLocalBackup}>JSONを書き出す</button>
+                <label className="btn ghost backup-import-button">
+                  JSONを読み込む
+                  <input type="file" accept="application/json,.json" onChange={importLocalBackup} />
+                </label>
               </div>
             </div>
             <div className="settings-card">
@@ -656,7 +835,7 @@ function App() {
       </div>
 
       {noteQuote && <div className="modal-overlay" onMouseDown={() => setNoteQuoteId(null)}><div className="modal-window small-modal" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><p className="eyebrow">Client memo</p><h2>顧客やり取りメモ</h2><span>{noteQuote.quoteNo} / {noteQuote.customerName}</span></div><button className="btn ghost" onClick={() => setNoteQuoteId(null)}>閉じる</button></div><div className="modal-body"><textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="やり取り内容を入力" /><button className="btn primary" onClick={addNote}>メモを追加</button><div className="note-list">{noteQuote.notes.map((note) => <article key={note.id}><time>{showDateTime(note.createdAt)} / {note.author}</time><p>{note.body}</p></article>)}</div></div></div></div>}
-      {preview && <div className="modal-overlay" onMouseDown={() => setPreview(null)}><div className="modal-window" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><p className="eyebrow">Preview</p><h2>{preview.kind === 'invoice' ? '請求書プレビュー' : '見積書プレビュー'}</h2></div><div className="modal-actions"><button className="btn primary" onClick={() => window.print()}>PDF化 / 印刷</button><button className="btn ghost" onClick={() => setPreview(null)}>閉じる</button></div></div><div className="paper-wrap"><PreviewPaper target={preview} taxRate={settings.taxRate} /></div></div></div>}
+      {preview && <div className="modal-overlay" onMouseDown={() => setPreview(null)}><div className="modal-window" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><p className="eyebrow">Preview</p><h2>{preview.kind === 'invoice' ? '請求書プレビュー' : '見積書プレビュー'}</h2></div><div className="modal-actions"><button className="btn primary" onClick={() => window.print()}>PDF化 / 印刷</button><button className="btn ghost" onClick={() => setPreview(null)}>閉じる</button></div></div><div className="paper-wrap"><PreviewPaper target={preview} taxRate={settings.taxRate} invoiceRegistrationNo={settings.invoiceRegistrationNo} /></div></div></div>}
     </div>
   )
 }

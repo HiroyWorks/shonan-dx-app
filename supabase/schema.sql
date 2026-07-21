@@ -11,6 +11,7 @@ create type public.join_request_status as enum ('pending', 'approved', 'rejected
 create table public.companies (
   id uuid primary key default gen_random_uuid(),
   name text not null,
+  invoice_registration_no text not null default '',
   plan public.plan_type not null default 'free',
   free_quote_limit integer not null default 20 check (free_quote_limit > 0),
   created_at timestamptz not null default now()
@@ -56,8 +57,12 @@ create table public.customers (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
   name text not null,
+  address text not null default '',
+  phone text not null default '',
   contact text not null default '',
+  contact_title text not null default '',
   email text not null default '',
+  invoice_registration_no text not null default '',
   memo text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

@@ -1,4 +1,4 @@
-﻿# Estimate management
+﻿# Estimate Management
 
 個人事業主・小規模法人向けの見積管理フロントエンドです。Vite + TypeScript + React で構成しています。
 
@@ -64,3 +64,11 @@ VITE_APP_FREE_QUOTE_LIMIT=20
 ## 公開
 
 `main` ブランチへpushするとGitHub ActionsでGitHub Pagesへデプロイされます。
+
+## 改善計画
+
+現状の課題、優先順位、段階的な修正計画は [改善課題ウォークスルー](docs/改善課題ウォークスルー.md) を参照してください。
+
+## Google検索への登録
+
+公開後、Google Search Consoleで `https://app.shonan-dx.com/` の所有権を確認し、`https://app.shonan-dx.com/sitemap.xml` を送信する。トップページはURL検査からインデックス登録をリクエストする。

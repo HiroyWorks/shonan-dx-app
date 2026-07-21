@@ -15,6 +15,35 @@
   gap: 18px;
 }
 
+.phase-banner {
+  width: min(1840px, 100%);
+  margin: 0 auto 14px;
+  border: 1px solid #e7d8b6;
+  border-radius: 12px;
+  background: #fff8e8;
+  color: #37352f;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.phase-banner div {
+  display: grid;
+  gap: 4px;
+}
+
+.phase-banner strong {
+  font-size: .98rem;
+}
+
+.phase-banner span {
+  color: #6f5f35;
+  font-size: .9rem;
+  line-height: 1.65;
+}
+
 .sidebar-nav {
   position: sticky;
   top: 20px;
@@ -147,6 +176,46 @@
   color: #475569;
 }
 
+.backup-card {
+  border-color: #e7d8b6;
+  background: #fffdf8;
+}
+
+.backup-summary,
+.backup-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.backup-summary span {
+  border: 1px solid #e2e0db;
+  border-radius: 999px;
+  background: #fbfaf7;
+  color: #6b665c;
+  font-size: .8rem;
+  font-weight: 800;
+  padding: 6px 10px;
+}
+
+.backup-import-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.backup-import-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
 .invoice-table {
   min-width: 860px;
 }
@@ -177,6 +246,11 @@
   }
 
   .plan-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .phase-banner {
     align-items: stretch;
     flex-direction: column;
   }
@@ -985,6 +1059,23 @@ td {
   padding: 9px 13px;
 }
 
+.login-site-link {
+  width: fit-content;
+  margin-top: 22px;
+  border-bottom: 1px solid rgba(255, 255, 255, .42);
+  color: rgba(255, 255, 255, .9);
+  font-size: .92rem;
+  font-weight: 780;
+  text-decoration: none;
+  transition: border-color .2s ease, color .2s ease;
+}
+
+.login-site-link:hover,
+.login-site-link:focus-visible {
+  border-color: #ffffff;
+  color: #ffffff;
+}
+
 .login-panel {
   display: grid;
   place-items: center;
@@ -1020,10 +1111,20 @@ td {
 }
 
 .login-description,
-.login-help {
+.login-help,
+.login-safety-note {
   margin: 10px 0 0;
   color: #787670;
   line-height: 1.75;
+}
+
+.login-safety-note {
+  border: 1px solid #e7d8b6;
+  border-radius: 8px;
+  background: #fff8e8;
+  color: #6f5f35;
+  font-size: .86rem;
+  padding: 10px 12px;
 }
 
 .login-help {
