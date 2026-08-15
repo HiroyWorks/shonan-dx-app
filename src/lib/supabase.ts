@@ -118,14 +118,20 @@ export const loadCompanyPlanAccess = async (userId: string): Promise<CompanyPlan
 }
 
 export const updateCompanyPlan = async (companyId: string, plan: 'free' | 'pro') => {
-  const { data, error } = await supabase
-    .from('companies')
-    .update({ plan })
-    .eq('id', companyId)
-    .select('id, name, plan, free_quote_limit')
-    .single()
+  const { error } = await supabase.rpc('update_company_plan', {
+    p_company_id: companyId,
+    p_plan: plan,
+  })
 
   if (error) throw error
+
+  const { data, error: loadError } = await supabase
+    .from('companies')
+    .select('id, name, plan, free_quote_limit')
+    .eq('id', companyId)
+    .single()
+
+  if (loadError) throw loadError
 
   const company = data as CompanyPlanRow
   return {

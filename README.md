@@ -13,8 +13,10 @@
 - 顧客やり取りメモの履歴管理
 - 見積書プレビュー、PDF化/印刷
 - 見積から請求書への変換
-- Supabase Google認証の接続準備
-- Supabase RLS前提のDBスキーマ
+- Supabase Google認証
+- Supabase上の顧客・品目・見積・請求書・更新履歴・設定CRUD
+- 組織所属に基づくRLSと、管理者限定の設定・バックアップ復元
+- 見積・請求書のトランザクション採番
 
 ## 開発コマンド
 
@@ -50,7 +52,13 @@ DBスキーマの正本は `supabase/migrations/` です。変更時は `npx sup
 3. 変更したSQLをSupabase SQL Editorで実行します。
 4. `profiles`、`platform_admins`、`companies`、`organizations`、`organization_memberships`、`quote_number_settings` が作成されたことを確認します。
 
-`supabase/schema.sql` は、SupabaseのData API向けに `authenticated` への明示的な `GRANT`、全テーブルのRLS、組織所属ベースのpolicyを含みます。契約プランは `companies.plan` を正とし、一般ユーザーは参照のみ、`platform_admins` の運営管理者だけがプラン列を更新できます。
+`supabase/schema.sql` は、SupabaseのData API向けに `authenticated` への明示的な `GRANT`、全テーブルのRLS、組織所属ベースのpolicyを含みます。契約プランは `companies.plan` を正とし、一般ユーザーは参照のみ、`platform_admins` の運営管理者だけがRPC経由で変更できます。
+
+### 業務データとバックアップ
+
+顧客、品目、見積、請求書、更新履歴、見積番号・税率設定はSupabaseへ保存されます。見積保存、ステータス変更、メモ追加、請求書化、設定保存、JSON復元はDB関数内のトランザクションで処理します。
+
+設定画面では表示中組織のJSONを書き出せます。旧ブラウザ版のJSONを選択するか、同じブラウザに旧localStorageが残っている場合は「このブラウザの旧データをDBへ移行」から、管理者が組織データをSupabaseへ移行できます。復元は表示中組織の業務データを置き換えるため、実行前に確認ダイアログが表示されます。
 
 ### 組織参加フロー
 

@@ -1,5 +1,5 @@
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import './App.css'
 import {
@@ -12,32 +12,47 @@ import {
   updateCompanyPlan,
   type CompanyPlanAccess,
 } from './lib/supabase'
+import {
+  addQuoteNote,
+  createInvoice,
+  deleteCustomer as deleteCustomerFromDb,
+  deleteItem as deleteItemFromDb,
+  deleteQuote as deleteQuoteFromDb,
+  importOrganizationBackup,
+  loadOrganizationData,
+  loadWorkspaceContext,
+  saveCustomer as saveCustomerToDb,
+  saveItem as saveItemToDb,
+  saveQuote as saveQuoteToDb,
+  saveWorkspaceSettings,
+  updateQuoteStatus as updateQuoteStatusInDb,
+  type BackupPayload,
+} from './lib/estimateRepository'
+import type {
+  Activity,
+  ActivityKind,
+  AppUser,
+  Customer,
+  Invoice,
+  Item,
+  Line,
+  Organization,
+  Plan,
+  Quote,
+  QuoteStatus,
+  Settings,
+  TaxKind,
+} from './types'
 
 void React
 
-type QuoteStatus = 'Pending' | 'Won' | 'Invoiced'
-type Role = 'admin' | 'member'
-type Plan = 'free' | 'pro'
 type SortKey = 'createdAt' | 'updatedAt' | 'amount' | 'quoteNo'
-type TaxKind = 'taxable' | 'exempt'
 type Page = 'dashboard' | 'quote' | 'invoices' | 'customers' | 'items' | 'settings'
-type Org = { id: string; company: string; name: string }
-type User = { id: string; name: string; email: string; role: Role; orgId: string }
-type Customer = { id: string; orgId: string; name: string; address: string; phone: string; contact: string; contactTitle: string; email: string; invoiceRegistrationNo: string; memo: string }
-type Item = { id: string; orgId: string; name: string; category: string; unitPrice: number; unit: string; taxKind?: TaxKind }
-type Line = { id: string; itemId: string; name: string; unitPrice: number; quantity: number; unit: string; taxKind?: TaxKind; isCustom?: boolean }
-type Note = { id: string; body: string; author: string; createdAt: string }
-type Quote = { id: string; orgId: string; quoteNo: string; customerId: string; customerName: string; project: string; amount: number; status: QuoteStatus; createdAt: string; updatedAt: string; memo: string; lines: Line[]; notes: Note[]; invoiceNo?: string }
-type Invoice = { id: string; orgId: string; invoiceNo: string; quoteId: string; customerName: string; amount: number; createdAt: string }
-type ActivityKind = 'quote-created' | 'quote-updated' | 'status-updated' | 'invoice-created' | 'memo-added'
-type Activity = { id: string; orgId: string; kind: ActivityKind; title: string; description: string; createdAt: string }
-type Settings = { taxRate: number; prefix: string; year: number; nextNo: number; invoiceRegistrationNo: string }
-type StorageName = 'customers' | 'items' | 'quotes' | 'invoices' | 'activities' | 'settings'
 type LocalBackup = {
   namespace: typeof KEY
   version: 1
   exportedAt: string
-  source: 'shonan-dx-app-localStorage'
+  source: 'shonan-dx-app-localStorage' | 'shonan-dx-app-supabase'
   data: {
     customers: Customer[]
     items: Item[]
@@ -48,41 +63,8 @@ type LocalBackup = {
   }
 }
 type Preview = { kind: 'quote'; quote: Quote } | { kind: 'invoice'; quote: Quote; invoice: Invoice }
-
-const ORGS: Org[] = [
-  { id: 'org-main', company: '湘南DX合同会社', name: '制作事業部' },
-  { id: 'org-backoffice', company: '湘南DX合同会社', name: 'バックオフィス' },
-]
-const USERS: User[] = [
-  { id: 'admin', name: '管理者ユーザー', email: 'admin@example.com', role: 'admin', orgId: 'org-main' },
-  { id: 'member', name: '担当者ユーザー', email: 'member@example.com', role: 'member', orgId: 'org-main' },
-]
-const CUSTOMERS: Customer[] = [
-  { id: 'c-minato', orgId: 'org-main', name: '株式会社みなと企画', address: '', phone: '', contact: '佐藤様', contactTitle: '', email: 'sato@minato.example', invoiceRegistrationNo: '', memo: 'Web案件が多い。月初に見積確認が入りやすい。' },
-  { id: 'c-bakery', orgId: 'org-main', name: '湘南ベーカリー', address: '', phone: '', contact: '山口様', contactTitle: '', email: 'info@bakery.example', invoiceRegistrationNo: '', memo: '写真素材の支給タイミングに注意。' },
-  { id: 'c-clinic', orgId: 'org-main', name: '藤沢クリニック', address: '', phone: '', contact: '採用担当様', contactTitle: '', email: 'hr@clinic.example', invoiceRegistrationNo: '', memo: '公開前チェックは院長確認あり。' },
-  { id: 'c-kamakura', orgId: 'org-main', name: '鎌倉工務店', address: '', phone: '', contact: '代表様', contactTitle: '', email: 'hello@kamakura.example', invoiceRegistrationNo: '', memo: '保守更新は四半期ごとに提案。' },
-  { id: 'c-other', orgId: 'org-backoffice', name: '社内管理用サンプル', address: '', phone: '', contact: '経理担当', contactTitle: '', email: 'accounting@example.com', invoiceRegistrationNo: '', memo: '別組織のサンプル。' },
-]
-const ITEMS: Item[] = [
-  { id: 'i-site', orgId: 'org-main', name: 'Webサイト制作', category: '制作', unitPrice: 180000, unit: '式', taxKind: 'taxable' },
-  { id: 'i-lp', orgId: 'org-main', name: 'ランディングページ制作', category: '制作', unitPrice: 120000, unit: '式', taxKind: 'taxable' },
-  { id: 'i-maintenance', orgId: 'org-main', name: '月額保守運用', category: '保守', unitPrice: 25000, unit: '月', taxKind: 'taxable' },
-  { id: 'i-seo', orgId: 'org-main', name: 'SEO記事作成', category: 'コンテンツ', unitPrice: 15000, unit: '本', taxKind: 'taxable' },
-  { id: 'i-support', orgId: 'org-main', name: '操作レクチャー', category: 'サポート', unitPrice: 12000, unit: '時間', taxKind: 'taxable' },
-  { id: 'i-photo', orgId: 'org-main', name: '撮影ディレクション', category: '現場', unitPrice: 80000, unit: '回', taxKind: 'taxable' },
-  { id: 'i-travel', orgId: 'org-main', name: '立替交通費', category: '立替', unitPrice: 3000, unit: '件', taxKind: 'exempt' },
-  { id: 'i-accounting', orgId: 'org-backoffice', name: '経理チェック', category: '管理', unitPrice: 10000, unit: '件', taxKind: 'exempt' },
-]
-const QUOTES: Quote[] = [
-  { id: 'q-041', orgId: 'org-main', quoteNo: 'Q-2026-041', customerId: 'c-bakery', customerName: '湘南ベーカリー', project: '新商品サイトリニューアル', amount: 528000, status: 'Pending', createdAt: '2026-06-02', updatedAt: '2026-06-13', memo: '商品撮影素材の支給後、下層ページ構成を確定します。', lines: [{ id: 'l-1', itemId: 'i-site', name: 'Webサイト制作', unitPrice: 180000, quantity: 2, unit: '式' }, { id: 'l-2', itemId: 'i-lp', name: 'ランディングページ制作', unitPrice: 120000, quantity: 1, unit: '式' }], notes: [{ id: 'n-1', body: '商品写真の差し替え希望あり。6/14に素材共有予定。', author: '管理者ユーザー', createdAt: '2026-06-13T09:30:00.000Z' }] },
-  { id: 'q-038', orgId: 'org-main', quoteNo: 'Q-2026-038', customerId: 'c-clinic', customerName: '藤沢クリニック', project: '採用LP制作', amount: 264000, status: 'Won', createdAt: '2026-05-28', updatedAt: '2026-07-08', memo: '公開後1週間の軽微な文言修正を含みます。', lines: [{ id: 'l-3', itemId: 'i-lp', name: 'ランディングページ制作', unitPrice: 120000, quantity: 2, unit: '式' }], notes: [] },
-  { id: 'q-036', orgId: 'org-main', quoteNo: 'Q-2026-036', customerId: 'c-kamakura', customerName: '鎌倉工務店', project: '定期保守プラン', amount: 198000, status: 'Invoiced', createdAt: '2026-05-23', updatedAt: '2026-05-25', memo: '月次レポートと軽微な更新作業を含む6か月分の保守費用です。', lines: [{ id: 'l-4', itemId: 'i-maintenance', name: '月額保守運用', unitPrice: 25000, quantity: 6, unit: '月' }, { id: 'l-5', itemId: 'i-seo', name: 'SEO記事作成', unitPrice: 15000, quantity: 2, unit: '本' }], notes: [], invoiceNo: 'INV-2026-001' },
-]
-const INVOICES: Invoice[] = [{ id: 'inv-001', orgId: 'org-main', invoiceNo: 'INV-2026-001', quoteId: 'q-036', customerName: '鎌倉工務店', amount: 198000, createdAt: '2026-05-25' }]
 const FREE_LIMIT = Number(import.meta.env.VITE_APP_FREE_QUOTE_LIMIT ?? 20)
 const KEY = 'estimate-management-v3'
-const LOCAL_SAVE_ERROR = 'ブラウザ保存に失敗しました。設定画面からJSONバックアップを取得し、空き容量やブラウザ設定を確認してください。'
 const statusText: Record<QuoteStatus, string> = { Pending: '返答待ち', Won: '成約', Invoiced: '請求済' }
 const activityText: Record<ActivityKind, string> = {
   'quote-created': '見積作成',
@@ -99,21 +81,6 @@ const navItems: { page: Page; label: string; description: string }[] = [
   { page: 'items', label: '品目マスタ', description: '単価・単位管理' },
   { page: 'settings', label: '設定', description: '組織・番号・税率' },
 ]
-const normalizeCustomers = (value: Customer[]) => value.map((customer) => ({
-  ...customer,
-  address: customer.address ?? '',
-  phone: customer.phone ?? '',
-  contact: customer.contact ?? '',
-  contactTitle: customer.contactTitle ?? '',
-  email: customer.email ?? '',
-  invoiceRegistrationNo: customer.invoiceRegistrationNo ?? '',
-  memo: customer.memo ?? '',
-}))
-const normalizeItems = (value: Item[]) => {
-  const fallbackExempt = ITEMS.find((item) => item.id === 'i-travel')
-  const normalized = value.map((item) => ({ ...item, taxKind: item.taxKind ?? 'taxable' }))
-  return fallbackExempt && !normalized.some((item) => item.id === fallbackExempt.id) ? [...normalized, fallbackExempt] : normalized
-}
 const statusList: QuoteStatus[] = ['Pending', 'Won', 'Invoiced']
 const yen = new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 })
 const dateFmt = new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })
@@ -131,7 +98,7 @@ const today = () => {
   return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-')
 }
 const now = () => new Date().toISOString()
-const id = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+const id = () => crypto.randomUUID()
 const money = (n: number) => yen.format(n)
 const showDate = (s: string) => dateFmt.format(parseDateValue(s))
 const showDateTime = (s: string) => dateTimeFmt.format(parseDateValue(s))
@@ -140,44 +107,6 @@ const dayStartMs = (s: string) => {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
 }
 const days = (s: string) => Math.max(0, Math.floor((dayStartMs(today()) - dayStartMs(s)) / 86400000))
-const makeInitialActivities = (sourceQuotes: Quote[] = QUOTES, sourceInvoices: Invoice[] = INVOICES): Activity[] => {
-  const activities: Activity[] = []
-  sourceQuotes.forEach((quote) => {
-    activities.push({ id: `activity-created-${quote.id}`, orgId: quote.orgId, kind: 'quote-created', title: `${quote.quoteNo} を作成`, description: `${quote.customerName} / ${quote.project} / ${money(quote.amount)}`, createdAt: quote.createdAt })
-    if (quote.updatedAt !== quote.createdAt) {
-      activities.push({ id: `activity-updated-${quote.id}`, orgId: quote.orgId, kind: 'quote-updated', title: `${quote.quoteNo} を更新`, description: `${quote.customerName} / ${quote.project}`, createdAt: quote.updatedAt })
-    }
-    quote.notes.forEach((note) => {
-      activities.push({ id: `activity-note-${quote.id}-${note.id}`, orgId: quote.orgId, kind: 'memo-added', title: `${quote.quoteNo} にメモを追加`, description: note.body, createdAt: note.createdAt })
-    })
-  })
-  sourceInvoices.forEach((invoice) => {
-    const quote = sourceQuotes.find((candidate) => candidate.id === invoice.quoteId)
-    activities.push({ id: `activity-invoice-${invoice.id}`, orgId: invoice.orgId, kind: 'invoice-created', title: `${invoice.invoiceNo} を作成`, description: quote ? `${quote.quoteNo} / ${quote.customerName} / ${money(invoice.amount)}` : `${invoice.customerName} / ${money(invoice.amount)}`, createdAt: invoice.createdAt })
-  })
-  return activities.sort((a, b) => parseDateValue(b.createdAt).getTime() - parseDateValue(a.createdAt).getTime()).slice(0, 50)
-}
-const load = <T,>(name: string, fallback: T): T => {
-  try { const raw = localStorage.getItem(`${KEY}:${name}`); return raw ? JSON.parse(raw) as T : fallback } catch { return fallback }
-}
-const normalizeSettings = (stored: Settings): Settings => {
-  return {
-    taxRate: stored.taxRate,
-    prefix: stored.prefix,
-    year: stored.year,
-    nextNo: stored.nextNo,
-    invoiceRegistrationNo: stored.invoiceRegistrationNo ?? '',
-  }
-}
-const loadSettings = (): Settings => normalizeSettings(load<Settings>('settings', { taxRate: 10, prefix: 'Q', year: 2026, nextNo: 42, invoiceRegistrationNo: '' }))
-const save = <T,>(name: string, value: T) => localStorage.setItem(`${KEY}:${name}`, JSON.stringify(value))
-const saveLocalData = <T,>(name: StorageName, value: T, onError: () => void) => {
-  try {
-    save(name, value)
-  } catch {
-    onError()
-  }
-}
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 const isSettings = (value: unknown): value is Settings => {
   return isRecord(value)
@@ -197,8 +126,151 @@ const isLocalBackup = (value: unknown): value is LocalBackup => {
     && Array.isArray(data.activities)
     && isSettings(data.settings)
 }
-const lineFrom = (item: Item): Line => ({ id: id('line'), itemId: item.id, name: item.name, unitPrice: item.unitPrice, quantity: 1, unit: item.unit, taxKind: item.taxKind ?? 'taxable' })
-const customLine = (): Line => ({ id: id('line'), itemId: `custom-${id('item')}`, name: '自由入力項目', unitPrice: 0, quantity: 1, unit: '式', taxKind: 'taxable', isCustom: true })
+const readLegacyBrowserBackup = (): LocalBackup | null => {
+  try {
+    const read = <T,>(name: string, fallback: T): T => {
+      const raw = localStorage.getItem(`${KEY}:${name}`)
+      return raw ? JSON.parse(raw) as T : fallback
+    }
+    const hasLegacyData = ['customers', 'items', 'quotes', 'invoices', 'activities', 'settings']
+      .some((name) => localStorage.getItem(`${KEY}:${name}`) !== null)
+    if (!hasLegacyData) return null
+
+    const candidate: LocalBackup = {
+      namespace: KEY,
+      version: 1,
+      exportedAt: now(),
+      source: 'shonan-dx-app-localStorage',
+      data: {
+        customers: read<Customer[]>('customers', []),
+        items: read<Item[]>('items', []),
+        quotes: read<Quote[]>('quotes', []),
+        invoices: read<Invoice[]>('invoices', []),
+        activities: read<Activity[]>('activities', []),
+        settings: read<Settings>('settings', {
+          taxRate: 10,
+          prefix: 'Q',
+          year: new Date().getFullYear(),
+          nextNo: 1,
+          invoiceRegistrationNo: '',
+        }),
+      },
+    }
+    return isLocalBackup(candidate) ? candidate : null
+  } catch {
+    return null
+  }
+}
+const statusToDb: Record<QuoteStatus, 'pending' | 'won' | 'invoiced'> = {
+  Pending: 'pending',
+  Won: 'won',
+  Invoiced: 'invoiced',
+}
+const prepareBackupPayload = (backup: LocalBackup): BackupPayload => {
+  const counts = new Map<string, number>()
+  ;[...backup.data.customers, ...backup.data.items, ...backup.data.quotes, ...backup.data.invoices, ...backup.data.activities]
+    .forEach((entry) => counts.set(entry.orgId, (counts.get(entry.orgId) ?? 0) + 1))
+  const sourceOrgId = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+  const sourceCustomers = backup.data.customers.filter((customer) => !sourceOrgId || customer.orgId === sourceOrgId)
+  const sourceItems = backup.data.items.filter((item) => !sourceOrgId || item.orgId === sourceOrgId)
+  const sourceQuotes = backup.data.quotes.filter((quote) => !sourceOrgId || quote.orgId === sourceOrgId)
+  const sourceInvoices = backup.data.invoices.filter((invoice) => !sourceOrgId || invoice.orgId === sourceOrgId)
+  const sourceActivities = backup.data.activities.filter((activity) => !sourceOrgId || activity.orgId === sourceOrgId)
+  const customerIds = new Map(sourceCustomers.map((customer) => [customer.id, id()]))
+  const itemIds = new Map(sourceItems.map((item) => [item.id, id()]))
+  const quoteIds = new Map(sourceQuotes.map((quote) => [quote.id, id()]))
+
+  return {
+    settings: {
+      prefix: backup.data.settings.prefix,
+      year: backup.data.settings.year,
+      next_sequence: backup.data.settings.nextNo,
+      tax_rate: backup.data.settings.taxRate,
+      invoice_registration_no: backup.data.settings.invoiceRegistrationNo ?? '',
+    },
+    customers: sourceCustomers.map((customer) => ({
+      id: customerIds.get(customer.id),
+      name: customer.name,
+      address: customer.address ?? '',
+      phone: customer.phone ?? '',
+      contact: customer.contact ?? '',
+      contact_title: customer.contactTitle ?? '',
+      email: customer.email ?? '',
+      invoice_registration_no: customer.invoiceRegistrationNo ?? '',
+      memo: customer.memo ?? '',
+    })),
+    items: sourceItems.map((item) => ({
+      id: itemIds.get(item.id),
+      name: item.name,
+      category: item.category,
+      unit_price: item.unitPrice,
+      unit: item.unit,
+      tax_kind: item.taxKind ?? 'taxable',
+    })),
+    quotes: sourceQuotes.flatMap((quote) => {
+      const customerId = customerIds.get(quote.customerId)
+      const quoteId = quoteIds.get(quote.id)
+      if (!customerId || !quoteId) return []
+      return [{
+        id: quoteId,
+        customer_id: customerId,
+        quote_no: quote.quoteNo,
+        project: quote.project,
+        memo: quote.memo,
+        amount: quote.amount,
+        status: statusToDb[quote.status],
+        created_at: quote.createdAt,
+        updated_at: quote.updatedAt,
+      }]
+    }),
+    quote_items: sourceQuotes.flatMap((quote) => {
+      const quoteId = quoteIds.get(quote.id)
+      if (!quoteId) return []
+      return quote.lines.map((line, index) => ({
+        id: id(),
+        quote_id: quoteId,
+        item_master_id: line.isCustom ? null : itemIds.get(line.itemId) ?? null,
+        name: line.name,
+        unit: line.unit,
+        unit_price: line.unitPrice,
+        quantity: line.quantity,
+        tax_kind: line.taxKind ?? 'taxable',
+        sort_order: index,
+      }))
+    }),
+    notes: sourceQuotes.flatMap((quote) => {
+      const quoteId = quoteIds.get(quote.id)
+      if (!quoteId) return []
+      return quote.notes.map((note) => ({
+        id: id(),
+        quote_id: quoteId,
+        author_display_name: note.author,
+        body: note.body,
+        created_at: note.createdAt,
+      }))
+    }),
+    invoices: sourceInvoices.flatMap((invoice) => {
+      const quoteId = quoteIds.get(invoice.quoteId)
+      if (!quoteId) return []
+      return [{
+        id: id(),
+        quote_id: quoteId,
+        invoice_no: invoice.invoiceNo,
+        amount: invoice.amount,
+        created_at: invoice.createdAt,
+      }]
+    }),
+    activities: sourceActivities.map((activity) => ({
+      id: id(),
+      kind: activity.kind,
+      title: activity.title,
+      description: activity.description,
+      created_at: activity.createdAt,
+    })),
+  }
+}
+const lineFrom = (item: Item): Line => ({ id: id(), itemId: item.id, name: item.name, unitPrice: item.unitPrice, quantity: 1, unit: item.unit, taxKind: item.taxKind ?? 'taxable' })
+const customLine = (): Line => ({ id: id(), itemId: '', name: '自由入力項目', unitPrice: 0, quantity: 1, unit: '式', taxKind: 'taxable', isCustom: true })
 const subtotal = (lines: Line[]) => lines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0)
 const taxableSubtotal = (lines: Line[]) => lines.reduce((sum, line) => {
   return line.taxKind === 'exempt' ? sum : sum + line.unitPrice * line.quantity
@@ -265,7 +337,7 @@ function LoginScreen({ checking, pending, error, onGoogleLogin }: LoginScreenPro
           <p className='eyebrow'>Shonan DX Lab / 見積管理・請求書作成アプリ</p>
           <h1>Estimate Management</h1>
           <p>見積から請求まで、仕事の流れを整える。</p>
-          <p>現在はベータ版です。業務データはブラウザ内に保存され、正式運用前の検証に利用します。</p>
+          <p>業務データはSupabaseに保存され、所属組織のメンバー間で同期されます。</p>
           <div className='login-feature-list'>
             <span>見積作成と進捗管理</span>
             <span>請求書へのスムーズな変換</span>
@@ -281,7 +353,7 @@ function LoginScreen({ checking, pending, error, onGoogleLogin }: LoginScreenPro
             <p className='eyebrow'>Welcome back</p>
             <h2>ログイン</h2>
             <p className='login-description'>招待されたGoogleアカウントでログインしてください。</p>
-            <p className='login-safety-note'>顧客・品目・見積・請求書はまだSupabaseへ保存されません。重要データは設定画面からJSONバックアップを取得してください。</p>
+            <p className='login-safety-note'>組織データはRLSで保護され、管理者の承認後に利用できます。</p>
           </div>
           {error && <div className='login-error' role='alert'>{error}</div>}
           {checking ? (
@@ -342,25 +414,26 @@ function App() {
   const [planAccess, setPlanAccess] = useState<CompanyPlanAccess>({ companies: [], isPlatformAdmin: false })
   const [planLoading, setPlanLoading] = useState(isSupabaseConfigured)
   const [planPendingCompanyId, setPlanPendingCompanyId] = useState<string | null>(null)
-  const [orgId, setOrgId] = useState('org-main')
-  const [userId, setUserId] = useState('admin')
-  const [customers, setCustomers] = useState(() => normalizeCustomers(load('customers', CUSTOMERS)))
-  const [items, setItems] = useState(() => normalizeItems(load('items', ITEMS)))
-  const [quotes, setQuotes] = useState(() => load('quotes', QUOTES))
-  const [invoices, setInvoices] = useState(() => load('invoices', INVOICES))
-  const [activities, setActivities] = useState(() => {
-    const stored = load<Activity[]>('activities', [])
-    return stored.length ? stored : makeInitialActivities(load('quotes', QUOTES), load('invoices', INVOICES))
-  })
-  const [settings, setSettings] = useState<Settings>(loadSettings)
+  const [workspaceUser, setWorkspaceUser] = useState<AppUser | null>(null)
+  const [organizations, setOrganizations] = useState<Organization[]>([])
+  const [orgId, setOrgId] = useState('')
+  const [dataLoading, setDataLoading] = useState(isSupabaseConfigured)
+  const [mutationPending, setMutationPending] = useState(false)
+  const [legacyBackupAvailable] = useState(() => Boolean(readLegacyBrowserBackup()))
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const [items, setItems] = useState<Item[]>([])
+  const [quotes, setQuotes] = useState<Quote[]>([])
+  const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [activities, setActivities] = useState<Activity[]>([])
+  const [settings, setSettings] = useState<Settings>({ taxRate: 10, prefix: 'Q', year: new Date().getFullYear(), nextNo: 1, invoiceRegistrationNo: '' })
   const [customerDraft, setCustomerDraft] = useState<Omit<Customer, 'id' | 'orgId'>>({ name: '', address: '', phone: '', contact: '', contactTitle: '', email: '', invoiceRegistrationNo: '', memo: '' })
   const [editingCustomer, setEditingCustomer] = useState<string | null>(null)
   const [itemDraft, setItemDraft] = useState<{ name: string; category: string; unitPrice: number; unit: string; taxKind: TaxKind }>({ name: '', category: '', unitPrice: 0, unit: '式', taxKind: 'taxable' })
   const [editingItem, setEditingItem] = useState<string | null>(null)
-  const [selectedCustomer, setSelectedCustomer] = useState('c-minato')
+  const [selectedCustomer, setSelectedCustomer] = useState('')
   const [project, setProject] = useState('コーポレートサイト見積')
   const [memo, setMemo] = useState('見積有効期限は30日です。要件確定後に最終調整いたします。')
-  const [lines, setLines] = useState<Line[]>(() => [lineFrom(ITEMS[0])])
+  const [lines, setLines] = useState<Line[]>([])
   const [editingQuote, setEditingQuote] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'All' | QuoteStatus>('All')
@@ -371,27 +444,21 @@ function App() {
   const [message, setMessage] = useState('')
   const [activePage, setActivePage] = useState<Page>('dashboard')
 
-  const org = ORGS.find((candidate) => candidate.id === orgId) ?? ORGS[0]
-  const user = USERS.find((candidate) => candidate.id === userId) ?? USERS[0]
+  const org = organizations.find((candidate) => candidate.id === orgId) ?? null
+  const user = workspaceUser
   const orgCustomers = customers.filter((customer) => customer.orgId === orgId)
   const orgItems = items.filter((item) => item.orgId === orgId)
   const orgQuotes = quotes.filter((quote) => quote.orgId === orgId)
   const orgInvoices = invoices.filter((invoice) => invoice.orgId === orgId)
   const currentTotals = useMemo(() => totals(lines, settings.taxRate), [lines, settings.taxRate])
   const noteQuote = quotes.find((quote) => quote.id === noteQuoteId) ?? null
-  const isAdmin = user.role === 'admin'
-  const currentCompanyPlan = planAccess.companies.find((company) => company.name === org.company) ?? planAccess.companies[0]
-  const activePlan = currentCompanyPlan?.plan ?? 'free'
-  const activeFreeQuoteLimit = currentCompanyPlan?.freeQuoteLimit ?? FREE_LIMIT
+  const isAdmin = org?.role === 'admin'
+  const currentCompanyPlan = planAccess.companies.find((company) => company.id === org?.companyId)
+  const activePlan = currentCompanyPlan?.plan ?? org?.plan ?? 'free'
+  const activeFreeQuoteLimit = currentCompanyPlan?.freeQuoteLimit ?? org?.freeQuoteLimit ?? FREE_LIMIT
   const canAddQuote = activePlan === 'pro' || orgQuotes.length < activeFreeQuoteLimit
   const nextQuoteNo = `${settings.prefix}-${settings.year}-${String(settings.nextNo).padStart(3, '0')}`
 
-  useEffect(() => saveLocalData('customers', customers, () => setMessage(LOCAL_SAVE_ERROR)), [customers])
-  useEffect(() => saveLocalData('items', items, () => setMessage(LOCAL_SAVE_ERROR)), [items])
-  useEffect(() => saveLocalData('quotes', quotes, () => setMessage(LOCAL_SAVE_ERROR)), [quotes])
-  useEffect(() => saveLocalData('invoices', invoices, () => setMessage(LOCAL_SAVE_ERROR)), [invoices])
-  useEffect(() => saveLocalData('activities', activities, () => setMessage(LOCAL_SAVE_ERROR)), [activities])
-  useEffect(() => saveLocalData('settings', settings, () => setMessage(LOCAL_SAVE_ERROR)), [settings])
   useEffect(() => {
     if (!isSupabaseConfigured) return
 
@@ -399,11 +466,19 @@ function App() {
     void supabase.auth.getSession().then(({ data, error }) => {
       if (!active) return
       if (error) setAuthError(authErrorText(error))
+      if (data.session) {
+        setDataLoading(true)
+        setPlanLoading(true)
+      }
       setSession(data.session)
       setAuthReady(true)
     })
     const { data } = supabase.auth.onAuthStateChange((_event, next) => {
       if (!active) return
+      if (next) {
+        setDataLoading(true)
+        setPlanLoading(true)
+      }
       setSession(next)
       setAuthReady(true)
       if (next) setAuthError('')
@@ -417,14 +492,27 @@ function App() {
     if (!isSupabaseConfigured || !session) return
 
     let active = true
-    void loadCompanyPlanAccess(session.user.id)
-      .then((access) => {
+    void Promise.all([
+      loadWorkspaceContext(session.user),
+      loadCompanyPlanAccess(session.user.id),
+    ])
+      .then(([workspace, access]) => {
         if (!active) return
+        setWorkspaceUser(workspace.user)
+        setOrganizations(workspace.organizations)
+        setOrgId((previous) => workspace.organizations.some((organization) => organization.id === previous)
+          ? previous
+          : workspace.organizations[0]?.id ?? '')
+        setSelectedCustomer('')
+        setLines([])
+        setEditingQuote(null)
         setPlanAccess(access)
+        if (workspace.organizations.length === 0) setDataLoading(false)
       })
       .catch(() => {
         if (!active) return
-        setMessage('契約プランを取得できませんでした。時間をおいて再読み込みしてください。')
+        setMessage('所属組織と契約プランを取得できませんでした。時間をおいて再読み込みしてください。')
+        setDataLoading(false)
       })
       .finally(() => {
         if (active) setPlanLoading(false)
@@ -434,6 +522,46 @@ function App() {
       active = false
     }
   }, [session])
+
+  const applyOrganizationData = useCallback((data: Awaited<ReturnType<typeof loadOrganizationData>>) => {
+    setCustomers(data.customers)
+    setItems(data.items)
+    setQuotes(data.quotes)
+    setInvoices(data.invoices)
+    setActivities(data.activities)
+    setSettings(data.settings)
+    setSelectedCustomer((previous) => data.customers.some((customer) => customer.id === previous)
+      ? previous
+      : data.customers[0]?.id ?? '')
+    setLines((previous) => previous.length > 0
+      ? previous
+      : data.items[0] ? [lineFrom(data.items[0])] : [customLine()])
+  }, [])
+
+  const refreshOrganization = useCallback(async (organization: Organization) => {
+    const data = await loadOrganizationData(organization)
+    applyOrganizationData(data)
+    return data
+  }, [applyOrganizationData])
+
+  useEffect(() => {
+    if (!org) return
+
+    let active = true
+    void loadOrganizationData(org)
+      .then((data) => {
+        if (active) applyOrganizationData(data)
+      })
+      .catch(() => {
+        if (active) setMessage('組織データを取得できませんでした。再読み込みしてください。')
+      })
+      .finally(() => {
+        if (active) setDataLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [applyOrganizationData, org])
 
   const handleGoogleLogin = async () => {
     setAuthPending(true)
@@ -470,12 +598,12 @@ function App() {
     }
   }
 
-  const exportLocalBackup = () => {
+  const exportBackup = () => {
     const backup: LocalBackup = {
       namespace: KEY,
       version: 1,
       exportedAt: now(),
-      source: 'shonan-dx-app-localStorage',
+      source: 'shonan-dx-app-supabase',
       data: { customers, items, quotes, invoices, activities, settings },
     }
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
@@ -487,46 +615,64 @@ function App() {
     link.click()
     link.remove()
     window.setTimeout(() => URL.revokeObjectURL(url), 0)
-    setMessage('ローカルデータのJSONバックアップを作成しました。')
+    setMessage('Supabase上の組織データをJSONとして書き出しました。')
   }
 
-  const importLocalBackup = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const importBackup = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
-    if (!window.confirm('現在のローカルデータを、選択したJSONバックアップで上書きします。実行しますか？')) return
+    if (!org || !isAdmin) return setMessage('JSONの復元は組織管理者だけが実行できます。')
+    if (!window.confirm(`${org.company} / ${org.name} のDBデータを、選択したJSONバックアップで置き換えます。実行しますか？`)) return
 
     const reader = new FileReader()
     reader.onerror = () => setMessage('JSONバックアップを読み込めませんでした。ファイルを確認してください。')
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
         const parsed: unknown = JSON.parse(String(reader.result ?? ''))
         if (!isLocalBackup(parsed)) {
           setMessage('shonan-dx-appのJSONバックアップとして読み込めませんでした。')
           return
         }
-        const data = parsed.data
-        const normalizedCustomers = normalizeCustomers(data.customers)
-        const normalizedItems = normalizeItems(data.items)
-        setCustomers(normalizedCustomers)
-        setItems(normalizedItems)
-        setQuotes(data.quotes)
-        setInvoices(data.invoices)
-        setActivities(data.activities)
-        setSettings(normalizeSettings(data.settings))
-        const firstCustomer = normalizedCustomers.find((customer) => customer.orgId === orgId) ?? normalizedCustomers[0]
-        const firstItem = normalizedItems.find((item) => item.orgId === orgId) ?? normalizedItems[0]
-        if (firstCustomer) setSelectedCustomer(firstCustomer.id)
-        if (firstItem) setLines([lineFrom(firstItem)])
+        setMutationPending(true)
+        await importOrganizationBackup(org.id, prepareBackupPayload(parsed))
+        const data = await refreshOrganization(org)
+        setSelectedCustomer(data.customers[0]?.id ?? '')
+        setLines(data.items[0] ? [lineFrom(data.items[0])] : [customLine()])
         setEditingQuote(null)
         setEditingCustomer(null)
         setEditingItem(null)
-        setMessage('JSONバックアップを読み込み、ローカルデータを復元しました。')
+        setMessage('JSONバックアップをSupabaseへ復元しました。')
       } catch {
-        setMessage('JSONの解析に失敗しました。バックアップファイルの内容を確認してください。')
+        setMessage('JSONを復元できませんでした。内容、管理者権限、プラン上限を確認してください。')
+      } finally {
+        setMutationPending(false)
       }
     }
     reader.readAsText(file, 'utf-8')
+  }
+
+  const migrateLegacyBrowserData = async () => {
+    if (!org || !isAdmin || mutationPending) return
+    const backup = readLegacyBrowserBackup()
+    if (!backup) return setMessage('このブラウザに移行できる旧データはありません。')
+    if (!window.confirm(`${org.company} / ${org.name} のDBデータを、このブラウザの旧データで置き換えます。実行しますか？`)) return
+
+    setMutationPending(true)
+    try {
+      await importOrganizationBackup(org.id, prepareBackupPayload(backup))
+      const data = await refreshOrganization(org)
+      setSelectedCustomer(data.customers[0]?.id ?? '')
+      setLines(data.items[0] ? [lineFrom(data.items[0])] : [customLine()])
+      setEditingQuote(null)
+      setEditingCustomer(null)
+      setEditingItem(null)
+      setMessage('このブラウザの旧データをSupabaseへ移行しました。旧データは復旧用としてブラウザ内に残しています。')
+    } catch {
+      setMessage('旧データを移行できませんでした。内容、管理者権限、プラン上限を確認してください。')
+    } finally {
+      setMutationPending(false)
+    }
   }
 
   const stats = useMemo(() => ({
@@ -551,35 +697,34 @@ function App() {
       .slice(0, 10)
   }, [activities, orgId])
 
-  const recordActivity = (activity: Omit<Activity, 'id' | 'orgId' | 'createdAt'> & { orgId?: string; createdAt?: string }) => {
-    const entry: Activity = {
-      id: id('activity'),
-      orgId: activity.orgId ?? orgId,
-      kind: activity.kind,
-      title: activity.title,
-      description: activity.description,
-      createdAt: activity.createdAt ?? now(),
+  const updateQuoteStatus = async (quote: Quote, status: QuoteStatus) => {
+    if (!org || mutationPending || quote.status === status) return
+    setMutationPending(true)
+    try {
+      await updateQuoteStatusInDb(quote.id, status)
+      await refreshOrganization(org)
+      setMessage(`${quote.quoteNo} を${statusText[status]}に変更しました。`)
+    } catch {
+      setMessage('ステータスを変更できませんでした。権限と通信状態を確認してください。')
+    } finally {
+      setMutationPending(false)
     }
-    setActivities((prev) => [entry, ...prev].slice(0, 200))
-  }
-
-  const updateQuoteStatus = (quote: Quote, status: QuoteStatus) => {
-    if (quote.status === status) return
-    const eventAt = now()
-    setQuotes((prev) => prev.map((candidate) => candidate.id === quote.id ? { ...candidate, status, updatedAt: eventAt } : candidate))
-    recordActivity({ kind: 'status-updated', title: `${quote.quoteNo} を${statusText[status]}に変更`, description: `${quote.customerName} / ${quote.project}`, createdAt: eventAt })
   }
   const changeOrganization = (nextOrgId: string) => {
-    const firstCustomer = customers.find((customer) => customer.orgId === nextOrgId)
-    const firstItem = items.find((item) => item.orgId === nextOrgId)
+    setDataLoading(true)
     setOrgId(nextOrgId)
-    if (firstCustomer) setSelectedCustomer(firstCustomer.id)
-    if (firstItem) setLines([lineFrom(firstItem)])
+    setCustomers([])
+    setItems([])
+    setQuotes([])
+    setInvoices([])
+    setActivities([])
+    setSelectedCustomer('')
+    setLines([])
     setEditingQuote(null)
   }
   const resetForm = () => {
     if (orgCustomers[0]) setSelectedCustomer(orgCustomers[0].id)
-    if (orgItems[0]) setLines([lineFrom(orgItems[0])])
+    setLines(orgItems[0] ? [lineFrom(orgItems[0])] : [customLine()])
     setProject('コーポレートサイト見積')
     setMemo('見積有効期限は30日です。要件確定後に最終調整いたします。')
     setEditingQuote(null)
@@ -593,39 +738,36 @@ function App() {
     if (field === 'unitPrice' || field === 'quantity') return { ...line, [field]: Math.max(field === 'quantity' ? 1 : 0, Number(value) || 0) }
     return { ...line, [field]: value }
   }))
-  const submitQuote = () => {
+  const submitQuote = async () => {
+    if (!org || mutationPending) return
     const customer = customers.find((candidate) => candidate.id === selectedCustomer)
     if (!customer) return setMessage('顧客を選択してください。')
+    if (lines.length === 0 || lines.some((line) => !line.name.trim() || line.quantity <= 0 || line.unitPrice < 0)) return setMessage('見積明細の品目名、単価、数量を確認してください。')
     if (!canAddQuote && !editingQuote) return setMessage(`フリープランは見積${activeFreeQuoteLimit}件までです。Proへの変更は運営管理者へお問い合わせください。`)
-    const eventAt = now()
-    const old = editingQuote ? quotes.find((quote) => quote.id === editingQuote) : undefined
-    const quote: Quote = {
-      id: old?.id ?? id('quote'),
-      orgId,
-      quoteNo: old?.quoteNo ?? nextQuoteNo,
-      customerId: customer.id,
-      customerName: customer.name,
-      project: project.trim() || '無題の案件',
-      amount: currentTotals.total,
-      status: old?.status ?? 'Pending',
-      createdAt: old?.createdAt ?? eventAt,
-      updatedAt: eventAt,
-      memo,
-      lines,
-      notes: old?.notes ?? [],
-      invoiceNo: old?.invoiceNo,
+    const previous = editingQuote ? quotes.find((quote) => quote.id === editingQuote) : undefined
+    setMutationPending(true)
+    try {
+      const quoteId = previous?.id ?? id()
+      await saveQuoteToDb({
+        organizationId: org.id,
+        quoteId,
+        customerId: customer.id,
+        project,
+        memo,
+        lines,
+      })
+      const data = await refreshOrganization(org)
+      const saved = data.quotes.find((quote) => quote.id === quoteId)
+      setMessage(previous ? `${saved?.quoteNo ?? previous.quoteNo} を更新しました。` : `${saved?.quoteNo ?? nextQuoteNo} を作成しました。`)
+      resetForm()
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : ''
+      setMessage(detail.includes('free plan quote limit reached')
+        ? `フリープランは見積${activeFreeQuoteLimit}件までです。`
+        : '見積を保存できませんでした。入力内容、権限、通信状態を確認してください。')
+    } finally {
+      setMutationPending(false)
     }
-    if (old) {
-      setQuotes((prev) => prev.map((candidate) => candidate.id === old.id ? quote : candidate))
-      setMessage(`${quote.quoteNo} を更新しました。`)
-      recordActivity({ kind: 'quote-updated', title: `${quote.quoteNo} を更新`, description: `${quote.customerName} / ${quote.project} / ${money(quote.amount)}`, createdAt: eventAt })
-    } else {
-      setQuotes((prev) => [quote, ...prev])
-      setSettings((prev) => ({ ...prev, nextNo: prev.nextNo + 1 }))
-      setMessage(`${quote.quoteNo} を提出済み一覧へ追加しました。`)
-      recordActivity({ kind: 'quote-created', title: `${quote.quoteNo} を作成`, description: `${quote.customerName} / ${quote.project} / ${money(quote.amount)}`, createdAt: eventAt })
-    }
-    resetForm()
   }
   const editQuote = (quote: Quote) => {
     setSelectedCustomer(quote.customerId)
@@ -640,70 +782,142 @@ function App() {
     setSelectedCustomer(quote.customerId)
     setProject(`${quote.project} のコピー`)
     setMemo(quote.memo)
-    setLines(quote.lines.map((line) => ({ ...line, id: id('line') })))
+    setLines(quote.lines.map((line) => ({ ...line, id: id() })))
     setEditingQuote(null)
     setActivePage('quote')
     setMessage(`${quote.quoteNo} を複製して入力フォームへ展開しました。`)
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
   }
-  const deleteQuote = (quote: Quote) => {
+  const deleteQuote = async (quote: Quote) => {
+    if (!org || mutationPending) return
     if (!window.confirm(`${quote.quoteNo} を削除しますか？`)) return
-    setQuotes((prev) => prev.filter((candidate) => candidate.id !== quote.id))
-    setInvoices((prev) => prev.filter((invoice) => invoice.quoteId !== quote.id))
-    setMessage(`${quote.quoteNo} を削除しました。`)
+    setMutationPending(true)
+    try {
+      await deleteQuoteFromDb(org.id, quote.id)
+      await refreshOrganization(org)
+      setMessage(`${quote.quoteNo} を削除しました。関連する請求書も削除されます。`)
+    } catch {
+      setMessage('見積を削除できませんでした。権限と通信状態を確認してください。')
+    } finally {
+      setMutationPending(false)
+    }
   }
-  const convertToInvoice = (quote: Quote) => {
+  const convertToInvoice = async (quote: Quote) => {
+    if (!org || mutationPending) return
     const existing = invoices.find((invoice) => invoice.quoteId === quote.id)
     if (existing) return setPreview({ kind: 'invoice', invoice: existing, quote })
-    const eventAt = now()
-    const invoiceNo = `INV-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(3, '0')}`
-    const invoice: Invoice = { id: id('invoice'), orgId: quote.orgId, invoiceNo, quoteId: quote.id, customerName: quote.customerName, amount: quote.amount, createdAt: eventAt }
-    const converted = { ...quote, status: 'Invoiced' as QuoteStatus, invoiceNo, updatedAt: eventAt }
-    setInvoices((prev) => [invoice, ...prev])
-    setQuotes((prev) => prev.map((candidate) => candidate.id === quote.id ? converted : candidate))
-    setPreview({ kind: 'invoice', invoice, quote: converted })
-    setMessage(`${quote.quoteNo} から ${invoiceNo} を作成しました。`)
-    recordActivity({ kind: 'invoice-created', title: `${invoiceNo} を作成`, description: `${quote.quoteNo} / ${quote.customerName} / ${money(quote.amount)}`, createdAt: eventAt })
+    setMutationPending(true)
+    try {
+      await createInvoice(quote.id)
+      const data = await refreshOrganization(org)
+      const invoice = data.invoices.find((candidate) => candidate.quoteId === quote.id)
+      const converted = data.quotes.find((candidate) => candidate.id === quote.id)
+      if (invoice && converted) setPreview({ kind: 'invoice', invoice, quote: converted })
+      setMessage(`${quote.quoteNo} から ${invoice?.invoiceNo ?? '請求書'} を作成しました。`)
+    } catch {
+      setMessage('請求書を作成できませんでした。権限と通信状態を確認してください。')
+    } finally {
+      setMutationPending(false)
+    }
   }
-  const saveCustomer = () => {
-    if (!customerDraft.name.trim()) return
-    if (editingCustomer) {
-      setCustomers((prev) => prev.map((customer) => customer.id === editingCustomer ? { ...customer, ...customerDraft, name: customerDraft.name.trim() } : customer))
+  const saveCustomer = async () => {
+    if (!org || mutationPending || !customerDraft.name.trim()) return
+    setMutationPending(true)
+    try {
+      await saveCustomerToDb(org.id, editingCustomer, customerDraft)
+      const wasEditing = Boolean(editingCustomer)
+      const data = await refreshOrganization(org)
       setEditingCustomer(null)
-    } else {
-      const customer: Customer = { id: id('customer'), orgId, ...customerDraft, name: customerDraft.name.trim() }
-      setCustomers((prev) => [customer, ...prev])
-      setSelectedCustomer(customer.id)
+      setCustomerDraft({ name: '', address: '', phone: '', contact: '', contactTitle: '', email: '', invoiceRegistrationNo: '', memo: '' })
+      if (!wasEditing) {
+        const created = data.customers.find((customer) => customer.name === customerDraft.name.trim())
+        if (created) setSelectedCustomer(created.id)
+      }
+      setMessage(wasEditing ? '顧客情報を更新しました。' : '顧客を追加しました。')
+    } catch {
+      setMessage('顧客を保存できませんでした。権限と通信状態を確認してください。')
+    } finally {
+      setMutationPending(false)
     }
-    setCustomerDraft({ name: '', address: '', phone: '', contact: '', contactTitle: '', email: '', invoiceRegistrationNo: '', memo: '' })
   }
-  const deleteCustomer = (customer: Customer) => {
+  const deleteCustomer = async (customer: Customer) => {
+    if (!org || mutationPending) return
     if (orgQuotes.some((quote) => quote.customerId === customer.id)) return setMessage('見積に使われている顧客は削除できません。')
-    setCustomers((prev) => prev.filter((candidate) => candidate.id !== customer.id))
-  }
-  const saveItem = () => {
-    if (!itemDraft.name.trim()) return
-    if (editingItem) {
-      setItems((prev) => prev.map((item) => item.id === editingItem ? { ...item, ...itemDraft, name: itemDraft.name.trim() } : item))
-      setEditingItem(null)
-    } else {
-      setItems((prev) => [{ id: id('item'), orgId, ...itemDraft, name: itemDraft.name.trim() }, ...prev])
+    if (!window.confirm(`${customer.name} を削除しますか？`)) return
+    setMutationPending(true)
+    try {
+      await deleteCustomerFromDb(org.id, customer.id)
+      await refreshOrganization(org)
+      setMessage(`${customer.name} を削除しました。`)
+    } catch {
+      setMessage('顧客を削除できませんでした。見積で使用中でないか確認してください。')
+    } finally {
+      setMutationPending(false)
     }
-    setItemDraft({ name: '', category: '', unitPrice: 0, unit: '式', taxKind: 'taxable' })
   }
-  const deleteItem = (item: Item) => {
+  const saveItem = async () => {
+    if (!org || mutationPending || !itemDraft.name.trim()) return
+    setMutationPending(true)
+    try {
+      const wasEditing = Boolean(editingItem)
+      await saveItemToDb(org.id, editingItem, itemDraft)
+      await refreshOrganization(org)
+      setEditingItem(null)
+      setItemDraft({ name: '', category: '', unitPrice: 0, unit: '式', taxKind: 'taxable' })
+      setMessage(wasEditing ? '品目を更新しました。' : '品目を追加しました。')
+    } catch {
+      setMessage('品目を保存できませんでした。権限と通信状態を確認してください。')
+    } finally {
+      setMutationPending(false)
+    }
+  }
+  const deleteItem = async (item: Item) => {
+    if (!org || mutationPending) return
     if (lines.some((line) => line.itemId === item.id) || orgQuotes.some((quote) => quote.lines.some((line) => line.itemId === item.id))) return setMessage('使用中の品目は削除できません。')
-    setItems((prev) => prev.filter((candidate) => candidate.id !== item.id))
+    if (!window.confirm(`${item.name} を削除しますか？`)) return
+    setMutationPending(true)
+    try {
+      await deleteItemFromDb(org.id, item.id)
+      await refreshOrganization(org)
+      setMessage(`${item.name} を削除しました。`)
+    } catch {
+      setMessage('品目を削除できませんでした。見積で使用中でないか確認してください。')
+    } finally {
+      setMutationPending(false)
+    }
   }
-  const addNote = () => {
-    if (!noteQuote || !noteDraft.trim()) return
-    const eventAt = now()
-    const note: Note = { id: id('note'), body: noteDraft.trim(), author: user.name, createdAt: eventAt }
-    setQuotes((prev) => prev.map((quote) => quote.id === noteQuote.id ? { ...quote, notes: [note, ...quote.notes], updatedAt: eventAt } : quote))
-    setNoteDraft('')
-    recordActivity({ kind: 'memo-added', title: `${noteQuote.quoteNo} にメモを追加`, description: note.body, createdAt: eventAt })
+  const addNote = async () => {
+    if (!org || mutationPending || !noteQuote || !noteDraft.trim()) return
+    setMutationPending(true)
+    try {
+      await addQuoteNote(noteQuote.id, noteDraft.trim())
+      setNoteDraft('')
+      await refreshOrganization(org)
+      setMessage(`${noteQuote.quoteNo} にメモを追加しました。`)
+    } catch {
+      setMessage('メモを追加できませんでした。権限と通信状態を確認してください。')
+    } finally {
+      setMutationPending(false)
+    }
+  }
+  const persistSettings = async () => {
+    if (!org || !isAdmin || mutationPending) return
+    setMutationPending(true)
+    try {
+      await saveWorkspaceSettings(org.id, settings)
+      setOrganizations((previous) => previous.map((organization) => organization.id === org.id
+        ? { ...organization, invoiceRegistrationNo: settings.invoiceRegistrationNo }
+        : organization))
+      await refreshOrganization({ ...org, invoiceRegistrationNo: settings.invoiceRegistrationNo })
+      setMessage('見積番号、税率、企業コードを保存しました。')
+    } catch {
+      setMessage('設定を保存できませんでした。管理者権限と入力内容を確認してください。')
+    } finally {
+      setMutationPending(false)
+    }
   }
   const draftPreview = () => {
+    if (!org) return
     const customer = customers.find((candidate) => candidate.id === selectedCustomer)
     if (!customer) return
     setPreview({ kind: 'quote', quote: { id: 'draft', orgId, quoteNo: editingQuote ? quotes.find((quote) => quote.id === editingQuote)?.quoteNo ?? nextQuoteNo : nextQuoteNo, customerId: customer.id, customerName: customer.name, project, amount: currentTotals.total, status: 'Pending', createdAt: now(), updatedAt: now(), memo, lines, notes: [] } })
@@ -714,19 +928,31 @@ function App() {
     return <LoginScreen checking={!authReady} pending={authPending} error={authError} onGoogleLogin={() => void handleGoogleLogin()} />
   }
 
+  if (!isSupabaseConfigured) {
+    return <main className="login-panel"><div className="login-card"><h1>Supabase設定が必要です</h1><p className="login-description">`.env.local` に接続先を設定してから起動してください。</p></div></main>
+  }
+
+  if (dataLoading) {
+    return <main className="login-panel"><div className="login-card"><div className="login-status"><span className="login-spinner" />組織データを読み込んでいます</div></div></main>
+  }
+
+  if (!org || !user) {
+    return <main className="login-panel"><div className="login-card"><p className="eyebrow">Organization access</p><h1>組織への参加承認をお待ちください</h1><p className="login-description">Googleログインは完了しています。組織管理者が参加申請を承認すると、業務データを利用できます。</p><button className="btn ghost" onClick={() => void signOut()}>ログアウト</button></div></main>
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar" data-ui-version="notion-clean-20260708">
         <div><p className="eyebrow">見積管理・請求書作成アプリ</p><h1>Estimate Management</h1></div>
-        <div className="auth-card"><span className={isSupabaseConfigured ? 'sync-dot active' : 'sync-dot'} /><div><strong>{org.company} / {org.name}</strong><span>{user.name} / {user.role === 'admin' ? '管理者' : '担当者'} ・ {isSupabaseConfigured ? session?.user.email ?? 'Google未ログイン' : 'ローカルモード'}</span></div>{isSupabaseConfigured ? session ? <button className="btn ghost" onClick={() => void signOut()}>ログアウト</button> : <button className="btn primary" onClick={() => void signInWithGoogle()}>Googleでログイン</button> : null}</div>
+        <div className="auth-card"><span className="sync-dot active" /><div><strong>{org.company} / {org.name}</strong><span>{user.name} / {org.role === 'admin' ? '管理者' : '担当者'} ・ {session?.user.email}</span></div><button className="btn ghost" onClick={() => void signOut()}>ログアウト</button></div>
       </header>
-      <section className="phase-banner" role="status" aria-label="ベータ版の保存状態">
+      <section className="phase-banner" role="status" aria-label="データの保存状態">
         <div>
-          <p className="eyebrow">Beta / Local storage</p>
-          <strong>正式運用前の検証モードです。</strong>
-          <span>Googleログインと契約プランは本番DBに接続済みですが、顧客・品目・見積・請求書・更新履歴はこのブラウザだけに保存されます。</span>
+          <p className="eyebrow">Cloud sync / Supabase</p>
+          <strong>業務データはSupabaseへ保存されます。</strong>
+          <span>顧客・品目・見積・請求書・更新履歴・設定は組織単位で同期され、RLSで所属組織だけに制限されます。</span>
         </div>
-        <button className="btn ghost" type="button" onClick={() => setActivePage('settings')}>JSONバックアップへ</button>
+        <button className="btn ghost" type="button" onClick={() => setActivePage('settings')}>バックアップへ</button>
       </section>
       <div className="app-layout">
         <aside className="sidebar-nav" aria-label="メインメニュー">
@@ -749,13 +975,13 @@ function App() {
         </section>
         <section className="panel dashboard-panel">
           <div className="panel-head"><div><p className="eyebrow">Quotes</p><h2>提出済みの見積一覧</h2></div><div className="filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="見積番号・顧客・案件で検索" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'All' | QuoteStatus)}><option value="All">すべてのステータス</option>{statusList.map((status) => <option key={status} value={status}>{statusText[status]}</option>)}</select><select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}><option value="createdAt">提出日順</option><option value="updatedAt">更新日順</option><option value="amount">金額順</option><option value="quoteNo">見積番号順</option></select></div></div>
-          <div className="table-wrap"><table className="data-table"><thead><tr><th>見積番号</th><th>取引先</th><th>案件名</th><th>金額</th><th>ステータス</th><th>経過</th><th>提出日</th><th>更新日</th><th>操作</th></tr></thead><tbody>{filteredQuotes.map((quote) => { const waiting = days(quote.createdAt); const attention = quote.status === 'Pending' && waiting >= 10; return <tr key={quote.id} className={attention ? 'row-alert' : undefined}><td><span className={attention ? 'dot danger' : 'dot'} />{quote.quoteNo}</td><td>{quote.customerName}</td><td>{quote.project}</td><td className="amount">{money(quote.amount)}</td><td><StatusBadge status={quote.status} /><select className="compact-select" value={quote.status} onChange={(event) => updateQuoteStatus(quote, event.target.value as QuoteStatus)}>{statusList.map((status) => <option key={status} value={status}>{statusText[status]}</option>)}</select></td><td className={attention ? 'danger-text' : undefined}>{quote.status === 'Pending' ? `${waiting}日経過` : '対応完了'}</td><td>{showDateTime(quote.createdAt)}</td><td>{showDateTime(quote.updatedAt)}</td><td><div className="table-actions"><button onClick={() => setPreview({ kind: 'quote', quote })}>プレビュー</button><button onClick={() => editQuote(quote)}>編集</button><button onClick={() => duplicateQuote(quote)}>複製</button><button onClick={() => convertToInvoice(quote)}>請求書化</button><button onClick={() => setNoteQuoteId(quote.id)}>メモ {quote.notes.length}</button><button className="danger-button" onClick={() => deleteQuote(quote)}>削除</button></div></td></tr> })}</tbody></table></div>
+          <div className="table-wrap"><table className="data-table"><thead><tr><th>見積番号</th><th>取引先</th><th>案件名</th><th>金額</th><th>ステータス</th><th>経過</th><th>提出日</th><th>更新日</th><th>操作</th></tr></thead><tbody>{filteredQuotes.map((quote) => { const waiting = days(quote.createdAt); const attention = quote.status === 'Pending' && waiting >= 10; return <tr key={quote.id} className={attention ? 'row-alert' : undefined}><td><span className={attention ? 'dot danger' : 'dot'} />{quote.quoteNo}</td><td>{quote.customerName}</td><td>{quote.project}</td><td className="amount">{money(quote.amount)}</td><td><StatusBadge status={quote.status} /><select className="compact-select" value={quote.status} disabled={mutationPending} onChange={(event) => void updateQuoteStatus(quote, event.target.value as QuoteStatus)}>{statusList.map((status) => <option key={status} value={status}>{statusText[status]}</option>)}</select></td><td className={attention ? 'danger-text' : undefined}>{quote.status === 'Pending' ? `${waiting}日経過` : '対応完了'}</td><td>{showDateTime(quote.createdAt)}</td><td>{showDateTime(quote.updatedAt)}</td><td><div className="table-actions"><button onClick={() => setPreview({ kind: 'quote', quote })}>プレビュー</button><button onClick={() => editQuote(quote)}>編集</button><button onClick={() => duplicateQuote(quote)}>複製</button><button disabled={mutationPending} onClick={() => void convertToInvoice(quote)}>請求書化</button><button onClick={() => setNoteQuoteId(quote.id)}>メモ {quote.notes.length}</button><button className="danger-button" disabled={mutationPending} onClick={() => void deleteQuote(quote)}>削除</button></div></td></tr> })}</tbody></table></div>
         </section>
         </>}
         {activePage === 'quote' && <>
         <section className="panel quote-panel">
           <div className="panel-head"><div><p className="eyebrow">Speed quote</p><h2>{editingQuote ? '見積編集' : '見積入力'}</h2></div></div>
-          <div className="quote-layout"><div className="quote-form"><div className="field-grid"><label><span>顧客名</span><select value={selectedCustomer} onChange={(event) => setSelectedCustomer(event.target.value)}>{orgCustomers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label><label><span>案件名</span><input value={project} onChange={(event) => setProject(event.target.value)} /></label></div><div className="customer-hint">{selectedCustomerData ? customerSummary(selectedCustomerData) : '顧客マスタを追加してください。'}</div><div className="form-table-wrap"><table className="line-table"><thead><tr><th>品目</th><th>税区分</th><th>単価</th><th>数量</th><th>金額</th><th></th></tr></thead><tbody>{lines.map((line) => <tr key={line.id}><td>{line.isCustom ? <input value={line.name} onChange={(event) => changeLine(line.id, 'name', event.target.value)} placeholder="自由入力項目" /> : <select value={line.itemId} onChange={(event) => changeLine(line.id, 'itemId', event.target.value)}>{orgItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}</td><td><select value={line.taxKind ?? 'taxable'} onChange={(event) => changeLine(line.id, 'taxKind', event.target.value)}><option value="taxable">課税</option><option value="exempt">非課税</option></select></td><td><UnitPriceInput key={`${line.id}-${line.itemId}`} value={line.unitPrice} onChange={(value) => changeLine(line.id, 'unitPrice', String(value))} /></td><td><input type="number" value={line.quantity} onChange={(event) => changeLine(line.id, 'quantity', event.target.value)} /></td><td className="amount">{money(line.unitPrice * line.quantity)}</td><td><button disabled={lines.length === 1} onClick={() => setLines((prev) => prev.filter((candidate) => candidate.id !== line.id))}>x</button></td></tr>)}</tbody></table></div><div className="quote-footer"><div className="line-add-actions"><button className="btn ghost" onClick={() => orgItems[0] && setLines((prev) => [...prev, lineFrom(orgItems[0])])}>+ マスタ明細を追加</button><button className="btn ghost" onClick={() => setLines((prev) => [...prev, customLine()])}>+ 自由明細を追加</button></div><div className="summary-inline"><span>小計 {money(currentTotals.sub)}</span><span>課税対象 {money(currentTotals.taxable)}</span><span>消費税 {money(currentTotals.tax)}</span><strong>合計 {money(currentTotals.total)}</strong></div></div><label className="memo-field"><span>メモ</span><textarea value={memo} onChange={(event) => setMemo(event.target.value)} /></label><div className="quote-actions"><button className="btn ghost" onClick={resetForm}>入力をリセット</button><button className="btn ghost" onClick={draftPreview}>見積書を確認</button><button className="btn primary" onClick={submitQuote}>{editingQuote ? '更新する' : '提出する'}</button></div></div></div>
+          <div className="quote-layout"><div className="quote-form"><div className="field-grid"><label><span>顧客名</span><select value={selectedCustomer} onChange={(event) => setSelectedCustomer(event.target.value)}>{orgCustomers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label><label><span>案件名</span><input value={project} onChange={(event) => setProject(event.target.value)} /></label></div><div className="customer-hint">{selectedCustomerData ? customerSummary(selectedCustomerData) : '顧客マスタを追加してください。'}</div><div className="form-table-wrap"><table className="line-table"><thead><tr><th>品目</th><th>税区分</th><th>単価</th><th>数量</th><th>金額</th><th></th></tr></thead><tbody>{lines.map((line) => <tr key={line.id}><td>{line.isCustom ? <input value={line.name} onChange={(event) => changeLine(line.id, 'name', event.target.value)} placeholder="自由入力項目" /> : <select value={line.itemId} onChange={(event) => changeLine(line.id, 'itemId', event.target.value)}>{orgItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}</td><td><select value={line.taxKind ?? 'taxable'} onChange={(event) => changeLine(line.id, 'taxKind', event.target.value)}><option value="taxable">課税</option><option value="exempt">非課税</option></select></td><td><UnitPriceInput key={`${line.id}-${line.itemId}`} value={line.unitPrice} onChange={(value) => changeLine(line.id, 'unitPrice', String(value))} /></td><td><input type="number" value={line.quantity} onChange={(event) => changeLine(line.id, 'quantity', event.target.value)} /></td><td className="amount">{money(line.unitPrice * line.quantity)}</td><td><button disabled={lines.length === 1} onClick={() => setLines((prev) => prev.filter((candidate) => candidate.id !== line.id))}>x</button></td></tr>)}</tbody></table></div><div className="quote-footer"><div className="line-add-actions"><button className="btn ghost" onClick={() => orgItems[0] && setLines((prev) => [...prev, lineFrom(orgItems[0])])}>+ マスタ明細を追加</button><button className="btn ghost" onClick={() => setLines((prev) => [...prev, customLine()])}>+ 自由明細を追加</button></div><div className="summary-inline"><span>小計 {money(currentTotals.sub)}</span><span>課税対象 {money(currentTotals.taxable)}</span><span>消費税 {money(currentTotals.tax)}</span><strong>合計 {money(currentTotals.total)}</strong></div></div><label className="memo-field"><span>メモ</span><textarea value={memo} onChange={(event) => setMemo(event.target.value)} /></label><div className="quote-actions"><button className="btn ghost" onClick={resetForm}>入力をリセット</button><button className="btn ghost" onClick={draftPreview}>見積書を確認</button><button className="btn primary" disabled={mutationPending || !selectedCustomer} onClick={() => void submitQuote()}>{mutationPending ? '保存中' : editingQuote ? '更新する' : '提出する'}</button></div></div></div>
         </section>
         </>}
         {activePage === 'invoices' && <>
@@ -765,10 +991,10 @@ function App() {
         </section>
         </>}
         {activePage === 'customers' && <>
-<section className="panel"><div className="panel-head"><div><p className="eyebrow">Customer master</p><h2>顧客マスタ</h2></div></div><div className="master-form"><input placeholder="顧客名" value={customerDraft.name} onChange={(event) => setCustomerDraft({ ...customerDraft, name: event.target.value })} /><input placeholder="住所" value={customerDraft.address} onChange={(event) => setCustomerDraft({ ...customerDraft, address: event.target.value })} /><input type="tel" placeholder="電話番号" value={customerDraft.phone} onChange={(event) => setCustomerDraft({ ...customerDraft, phone: event.target.value })} /><input placeholder="担当者" value={customerDraft.contact} onChange={(event) => setCustomerDraft({ ...customerDraft, contact: event.target.value })} /><input placeholder="担当者の役職" value={customerDraft.contactTitle} onChange={(event) => setCustomerDraft({ ...customerDraft, contactTitle: event.target.value })} /><input placeholder="メール" value={customerDraft.email} onChange={(event) => setCustomerDraft({ ...customerDraft, email: event.target.value })} /><input placeholder="INVOICE NO.（企業コード）" value={customerDraft.invoiceRegistrationNo} onChange={(event) => setCustomerDraft({ ...customerDraft, invoiceRegistrationNo: event.target.value })} /><textarea placeholder="メモ" value={customerDraft.memo} onChange={(event) => setCustomerDraft({ ...customerDraft, memo: event.target.value })} /><button className="btn primary" onClick={saveCustomer}>{editingCustomer ? '顧客を更新' : '顧客を追加'}</button></div><div className="master-list">{orgCustomers.map((customer) => <article key={customer.id}><strong>{customer.name}</strong><span>住所: {customer.address || '未登録'}</span><span>電話: {customer.phone || '未登録'} / メール: {customer.email || '未登録'}</span><span>担当者: {customerContactText(customer)}</span><span>INVOICE NO.（企業コード）: {customer.invoiceRegistrationNo || '未登録'}</span><p>{customer.memo}</p>{isAdmin && <div><button onClick={() => { setCustomerDraft({ name: customer.name, address: customer.address, phone: customer.phone, contact: customer.contact, contactTitle: customer.contactTitle, email: customer.email, invoiceRegistrationNo: customer.invoiceRegistrationNo, memo: customer.memo }); setEditingCustomer(customer.id) }}>編集</button><button onClick={() => deleteCustomer(customer)}>削除</button></div>}</article>)}</div></section>
+<section className="panel"><div className="panel-head"><div><p className="eyebrow">Customer master</p><h2>顧客マスタ</h2></div></div><div className="master-form"><input placeholder="顧客名" value={customerDraft.name} onChange={(event) => setCustomerDraft({ ...customerDraft, name: event.target.value })} /><input placeholder="住所" value={customerDraft.address} onChange={(event) => setCustomerDraft({ ...customerDraft, address: event.target.value })} /><input type="tel" placeholder="電話番号" value={customerDraft.phone} onChange={(event) => setCustomerDraft({ ...customerDraft, phone: event.target.value })} /><input placeholder="担当者" value={customerDraft.contact} onChange={(event) => setCustomerDraft({ ...customerDraft, contact: event.target.value })} /><input placeholder="担当者の役職" value={customerDraft.contactTitle} onChange={(event) => setCustomerDraft({ ...customerDraft, contactTitle: event.target.value })} /><input placeholder="メール" value={customerDraft.email} onChange={(event) => setCustomerDraft({ ...customerDraft, email: event.target.value })} /><input placeholder="INVOICE NO.（企業コード）" value={customerDraft.invoiceRegistrationNo} onChange={(event) => setCustomerDraft({ ...customerDraft, invoiceRegistrationNo: event.target.value })} /><textarea placeholder="メモ" value={customerDraft.memo} onChange={(event) => setCustomerDraft({ ...customerDraft, memo: event.target.value })} /><button className="btn primary" disabled={mutationPending} onClick={() => void saveCustomer()}>{mutationPending ? '保存中' : editingCustomer ? '顧客を更新' : '顧客を追加'}</button></div><div className="master-list">{orgCustomers.map((customer) => <article key={customer.id}><strong>{customer.name}</strong><span>住所: {customer.address || '未登録'}</span><span>電話: {customer.phone || '未登録'} / メール: {customer.email || '未登録'}</span><span>担当者: {customerContactText(customer)}</span><span>INVOICE NO.（企業コード）: {customer.invoiceRegistrationNo || '未登録'}</span><p>{customer.memo}</p>{isAdmin && <div><button onClick={() => { setCustomerDraft({ name: customer.name, address: customer.address, phone: customer.phone, contact: customer.contact, contactTitle: customer.contactTitle, email: customer.email, invoiceRegistrationNo: customer.invoiceRegistrationNo, memo: customer.memo }); setEditingCustomer(customer.id) }}>編集</button><button disabled={mutationPending} onClick={() => void deleteCustomer(customer)}>削除</button></div>}</article>)}</div></section>
         </>}
         {activePage === 'items' && <>
-<section className="panel"><div className="panel-head"><div><p className="eyebrow">Item master</p><h2>品目マスタ</h2></div></div><div className="master-form"><input placeholder="品目名" value={itemDraft.name} onChange={(event) => setItemDraft({ ...itemDraft, name: event.target.value })} /><input placeholder="カテゴリ" value={itemDraft.category} onChange={(event) => setItemDraft({ ...itemDraft, category: event.target.value })} /><input type="number" placeholder="単価" value={itemDraft.unitPrice} onChange={(event) => setItemDraft({ ...itemDraft, unitPrice: Math.max(0, Number(event.target.value) || 0) })} /><input placeholder="単位" value={itemDraft.unit} onChange={(event) => setItemDraft({ ...itemDraft, unit: event.target.value })} /><select value={itemDraft.taxKind} onChange={(event) => setItemDraft({ ...itemDraft, taxKind: event.target.value as TaxKind })}><option value="taxable">課税</option><option value="exempt">非課税</option></select><button className="btn primary" onClick={saveItem}>{editingItem ? '品目を更新' : '品目を追加'}</button></div><div className="master-list">{orgItems.map((item) => <article key={item.id}><strong>{item.name}</strong><span>{item.category} / {money(item.unitPrice)} / {item.unit} / {taxKindText(item.taxKind)}</span>{isAdmin && <div><button onClick={() => { setItemDraft({ name: item.name, category: item.category, unitPrice: item.unitPrice, unit: item.unit, taxKind: item.taxKind ?? 'taxable' }); setEditingItem(item.id) }}>編集</button><button onClick={() => deleteItem(item)}>削除</button></div>}</article>)}</div></section>
+<section className="panel"><div className="panel-head"><div><p className="eyebrow">Item master</p><h2>品目マスタ</h2></div></div><div className="master-form"><input placeholder="品目名" value={itemDraft.name} onChange={(event) => setItemDraft({ ...itemDraft, name: event.target.value })} /><input placeholder="カテゴリ" value={itemDraft.category} onChange={(event) => setItemDraft({ ...itemDraft, category: event.target.value })} /><input type="number" placeholder="単価" value={itemDraft.unitPrice} onChange={(event) => setItemDraft({ ...itemDraft, unitPrice: Math.max(0, Number(event.target.value) || 0) })} /><input placeholder="単位" value={itemDraft.unit} onChange={(event) => setItemDraft({ ...itemDraft, unit: event.target.value })} /><select value={itemDraft.taxKind} onChange={(event) => setItemDraft({ ...itemDraft, taxKind: event.target.value as TaxKind })}><option value="taxable">課税</option><option value="exempt">非課税</option></select><button className="btn primary" disabled={mutationPending} onClick={() => void saveItem()}>{mutationPending ? '保存中' : editingItem ? '品目を更新' : '品目を追加'}</button></div><div className="master-list">{orgItems.map((item) => <article key={item.id}><strong>{item.name}</strong><span>{item.category} / {money(item.unitPrice)} / {item.unit} / {taxKindText(item.taxKind)}</span>{isAdmin && <div><button onClick={() => { setItemDraft({ name: item.name, category: item.category, unitPrice: item.unitPrice, unit: item.unit, taxKind: item.taxKind ?? 'taxable' }); setEditingItem(item.id) }}>編集</button><button disabled={mutationPending} onClick={() => void deleteItem(item)}>削除</button></div>}</article>)}</div></section>
 
         </>}
         {activePage === 'settings' && <>
@@ -776,22 +1002,23 @@ function App() {
           <div className="panel-head"><div><p className="eyebrow">Settings</p><h2>設定</h2></div><p className="section-note">会社、組織、ユーザー、見積番号、税率を管理し、契約プランを確認します。</p></div>
           <div className="settings-page">
             <section className="workspace-panel">
-              <label><span>会社 / 組織</span><select value={orgId} onChange={(event) => changeOrganization(event.target.value)}>{ORGS.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.company} / {candidate.name}</option>)}</select></label>
-              <label><span>ユーザー / ロール</span><select value={userId} onChange={(event) => setUserId(event.target.value)}>{USERS.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} / {candidate.role === 'admin' ? '管理者' : '担当者'}</option>)}</select></label>
+              <label><span>会社 / 組織</span><select value={orgId} onChange={(event) => changeOrganization(event.target.value)}>{organizations.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.company} / {candidate.name}</option>)}</select></label>
+              <label><span>ログインユーザー / ロール</span><input value={`${user.name} / ${org.role === 'admin' ? '管理者' : '担当者'}`} readOnly /></label>
               <div className="workspace-meta"><strong>{org.company}</strong><span>{org.name} のデータだけを表示中</span></div>
             </section>
             <div className="settings-card">
               <div className="settings-card-head"><p className="eyebrow">Quote rules</p><h3>見積・税率設定</h3></div>
               <div className="settings-strip">
-                <label><span>見積番号</span><input value={settings.prefix} onChange={(event) => setSettings((prev) => ({ ...prev, prefix: event.target.value || 'Q' }))} /></label>
-                <label><span>次番号</span><input type="number" value={settings.nextNo} onChange={(event) => setSettings((prev) => ({ ...prev, nextNo: Math.max(1, Number(event.target.value) || 1) }))} /></label>
-                <label><span>税率</span><input type="number" value={settings.taxRate} onChange={(event) => setSettings((prev) => ({ ...prev, taxRate: Math.max(0, Number(event.target.value) || 0) }))} /></label>
-                <label><span>INVOICE NO.（企業コード）</span><input value={settings.invoiceRegistrationNo} onChange={(event) => setSettings((prev) => ({ ...prev, invoiceRegistrationNo: event.target.value }))} /></label>
+                <label><span>見積番号</span><input disabled={!isAdmin} value={settings.prefix} onChange={(event) => setSettings((prev) => ({ ...prev, prefix: event.target.value || 'Q' }))} /></label>
+                <label><span>次番号</span><input disabled={!isAdmin} type="number" value={settings.nextNo} onChange={(event) => setSettings((prev) => ({ ...prev, nextNo: Math.max(1, Number(event.target.value) || 1) }))} /></label>
+                <label><span>税率</span><input disabled={!isAdmin} type="number" value={settings.taxRate} onChange={(event) => setSettings((prev) => ({ ...prev, taxRate: Math.max(0, Number(event.target.value) || 0) }))} /></label>
+                <label><span>INVOICE NO.（企業コード）</span><input disabled={!isAdmin} value={settings.invoiceRegistrationNo} onChange={(event) => setSettings((prev) => ({ ...prev, invoiceRegistrationNo: event.target.value }))} /></label>
               </div>
+              <div className="backup-actions"><button className="btn primary" type="button" disabled={!isAdmin || mutationPending} onClick={() => void persistSettings()}>{mutationPending ? '保存中' : '設定を保存'}</button></div>
             </div>
             <div className="settings-card backup-card">
-              <div className="settings-card-head"><p className="eyebrow">Local backup</p><h3>ローカルデータのバックアップ</h3></div>
-              <p className="plan-admin-note">顧客、品目、見積、請求書、更新履歴、設定をJSONとして保存します。フェーズ1のDB移行が完了するまでは、作業前後にバックアップを取得してください。</p>
+              <div className="settings-card-head"><p className="eyebrow">Database backup</p><h3>組織データのバックアップ</h3></div>
+              <p className="plan-admin-note">表示中組織の顧客、品目、見積、請求書、更新履歴、設定をJSONとして保存します。旧ブラウザ版のJSONも管理者がSupabaseへ復元できます。</p>
               <div className="backup-summary" aria-label="バックアップ対象件数">
                 <span>顧客 {customers.length}件</span>
                 <span>品目 {items.length}件</span>
@@ -800,10 +1027,11 @@ function App() {
                 <span>履歴 {activities.length}件</span>
               </div>
               <div className="backup-actions">
-                <button className="btn primary" type="button" onClick={exportLocalBackup}>JSONを書き出す</button>
-                <label className="btn ghost backup-import-button">
-                  JSONを読み込む
-                  <input type="file" accept="application/json,.json" onChange={importLocalBackup} />
+                <button className="btn primary" type="button" onClick={exportBackup}>JSONを書き出す</button>
+                {legacyBackupAvailable && <button className="btn ghost" type="button" disabled={!isAdmin || mutationPending} onClick={() => void migrateLegacyBrowserData()}>このブラウザの旧データをDBへ移行</button>}
+                <label className={`btn ghost backup-import-button${!isAdmin || mutationPending ? ' disabled' : ''}`}>
+                  JSONをDBへ復元
+                  <input type="file" disabled={!isAdmin || mutationPending} accept="application/json,.json" onChange={importBackup} />
                 </label>
               </div>
             </div>
@@ -834,7 +1062,7 @@ function App() {
         </div>
       </div>
 
-      {noteQuote && <div className="modal-overlay" onMouseDown={() => setNoteQuoteId(null)}><div className="modal-window small-modal" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><p className="eyebrow">Client memo</p><h2>顧客やり取りメモ</h2><span>{noteQuote.quoteNo} / {noteQuote.customerName}</span></div><button className="btn ghost" onClick={() => setNoteQuoteId(null)}>閉じる</button></div><div className="modal-body"><textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="やり取り内容を入力" /><button className="btn primary" onClick={addNote}>メモを追加</button><div className="note-list">{noteQuote.notes.map((note) => <article key={note.id}><time>{showDateTime(note.createdAt)} / {note.author}</time><p>{note.body}</p></article>)}</div></div></div></div>}
+      {noteQuote && <div className="modal-overlay" onMouseDown={() => setNoteQuoteId(null)}><div className="modal-window small-modal" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><p className="eyebrow">Client memo</p><h2>顧客やり取りメモ</h2><span>{noteQuote.quoteNo} / {noteQuote.customerName}</span></div><button className="btn ghost" onClick={() => setNoteQuoteId(null)}>閉じる</button></div><div className="modal-body"><textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="やり取り内容を入力" /><button className="btn primary" disabled={mutationPending} onClick={() => void addNote()}>{mutationPending ? '保存中' : 'メモを追加'}</button><div className="note-list">{noteQuote.notes.map((note) => <article key={note.id}><time>{showDateTime(note.createdAt)} / {note.author}</time><p>{note.body}</p></article>)}</div></div></div></div>}
       {preview && <div className="modal-overlay" onMouseDown={() => setPreview(null)}><div className="modal-window" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><p className="eyebrow">Preview</p><h2>{preview.kind === 'invoice' ? '請求書プレビュー' : '見積書プレビュー'}</h2></div><div className="modal-actions"><button className="btn primary" onClick={() => window.print()}>PDF化 / 印刷</button><button className="btn ghost" onClick={() => setPreview(null)}>閉じる</button></div></div><div className="paper-wrap"><PreviewPaper target={preview} taxRate={settings.taxRate} invoiceRegistrationNo={settings.invoiceRegistrationNo} /></div></div></div>}
     </div>
   )
