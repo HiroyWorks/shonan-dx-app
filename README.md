@@ -27,17 +27,21 @@ npm run build
 
 ## Supabase設定
 
-1. Supabaseでプロジェクトを作成します。
-2. `supabase/schema.sql` をSQL Editorで実行します。
-3. `.env.example` を参考に `.env.local` を作成します。
-4. Supabase AuthでGoogle providerを有効化し、Google CloudのOAuth Client ID/Secretを設定します。
-5. Site URLとRedirect URLにローカルURL、GitHub Pages URL、本番URLを追加します。
+1. `npm install` で固定済みのSupabase CLIを導入します。
+2. `npx supabase login` でCLIを認証します。
+3. `npx supabase link --project-ref <project-ref>` で対象プロジェクトへ接続します。
+4. `npx supabase migration list --linked` でローカルとリモートの履歴が一致することを確認します。
+5. `.env.example` を参考に `.env.local` を作成します。
+6. Supabase AuthでGoogle providerを有効化し、Google CloudのOAuth Client ID/Secretを設定します。
+7. Site URLとRedirect URLにローカルURL、GitHub Pages URL、本番URLを追加します。
 
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-publishable-or-anon-key
 VITE_APP_FREE_QUOTE_LIMIT=20
 ```
+
+DBスキーマの正本は `supabase/migrations/` です。変更時は `npx supabase migration new <変更名>` でファイルを作成し、内容を確認してから `npx supabase db push --linked` で反映します。`supabase/schema.sql` は現行スキーマをまとめて確認するための参照用ファイルです。
 
 ### 初回データ作成
 

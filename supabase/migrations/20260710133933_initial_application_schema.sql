@@ -1,4 +1,4 @@
-﻿create extension if not exists pgcrypto;
+create extension if not exists pgcrypto;
 create schema if not exists app_private;
 
 create type public.user_role as enum ('admin', 'member');
@@ -11,9 +11,8 @@ create type public.join_request_status as enum ('pending', 'approved', 'rejected
 create table public.companies (
   id uuid primary key default gen_random_uuid(),
   name text not null,
-  invoice_registration_no text not null default '',
   plan public.plan_type not null default 'free',
-  free_quote_limit integer not null default 20 constraint companies_free_quote_limit_positive check (free_quote_limit > 0),
+  free_quote_limit integer not null default 20,
   created_at timestamptz not null default now()
 );
 create table public.organizations (
@@ -26,10 +25,6 @@ create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null,
   email text not null,
-  created_at timestamptz not null default now()
-);
-create table public.platform_admins (
-  user_id uuid primary key references auth.users(id) on delete cascade,
   created_at timestamptz not null default now()
 );
 create table public.organization_memberships (
@@ -57,12 +52,8 @@ create table public.customers (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
   name text not null,
-  address text not null default '',
-  phone text not null default '',
   contact text not null default '',
-  contact_title text not null default '',
   email text not null default '',
-  invoice_registration_no text not null default '',
   memo text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -139,25 +130,15 @@ create table public.activity_logs (
 
 create unique index organization_memberships_one_admin_per_org_idx on public.organization_memberships (organization_id) where role = 'admin';
 create unique index organization_join_requests_one_pending_per_user_org_idx on public.organization_join_requests (organization_id, user_id) where status = 'pending';
-create index organizations_company_id_idx on public.organizations (company_id);
-create index organization_memberships_user_id_idx on public.organization_memberships (user_id);
 create index organization_join_requests_organization_status_idx on public.organization_join_requests (organization_id, status, created_at desc);
 create index organization_join_requests_user_created_at_idx on public.organization_join_requests (user_id, created_at desc);
-create index organization_join_requests_reviewed_by_idx on public.organization_join_requests (reviewed_by);
 create index activity_logs_organization_created_at_idx on public.activity_logs (organization_id, created_at desc);
-create index activity_logs_actor_id_idx on public.activity_logs (actor_id);
 create index customers_organization_name_idx on public.customers (organization_id, name);
 create index item_masters_organization_name_idx on public.item_masters (organization_id, name);
 create index quotes_organization_created_at_idx on public.quotes (organization_id, created_at desc);
 create index quotes_organization_status_idx on public.quotes (organization_id, status);
-create index quotes_customer_id_idx on public.quotes (customer_id);
-create index quotes_created_by_idx on public.quotes (created_by);
 create index quote_items_quote_sort_order_idx on public.quote_items (quote_id, sort_order);
-create index quote_items_item_master_id_idx on public.quote_items (item_master_id);
-create index quote_interaction_notes_quote_id_idx on public.quote_interaction_notes (quote_id);
-create index quote_interaction_notes_author_id_idx on public.quote_interaction_notes (author_id);
 create index invoices_organization_created_at_idx on public.invoices (organization_id, created_at desc);
-create index invoices_quote_id_idx on public.invoices (quote_id);
 
 create or replace function app_private.is_org_member(target_organization_id uuid)
 returns boolean language sql stable security definer set search_path = public as $$
@@ -180,23 +161,6 @@ revoke all on function app_private.is_org_admin(uuid) from public;
 grant execute on function app_private.is_org_member(uuid) to authenticated, service_role;
 grant execute on function app_private.is_org_admin(uuid) to authenticated, service_role;
 
-revoke all privileges on table
-  public.companies,
-  public.platform_admins,
-  public.organizations,
-  public.profiles,
-  public.organization_memberships,
-  public.organization_join_requests,
-  public.customers,
-  public.item_masters,
-  public.quote_number_settings,
-  public.quotes,
-  public.quote_items,
-  public.quote_interaction_notes,
-  public.invoices,
-  public.activity_logs
-from anon, authenticated, service_role;
-
 grant usage on schema public to authenticated, service_role;
 grant usage on type public.user_role to authenticated, service_role;
 grant usage on type public.quote_status to authenticated, service_role;
@@ -205,6 +169,7 @@ grant usage on type public.tax_kind to authenticated, service_role;
 grant usage on type public.activity_kind to authenticated, service_role;
 grant usage on type public.join_request_status to authenticated, service_role;
 grant select, insert, update, delete on table
+  public.companies,
   public.organizations,
   public.profiles,
   public.organization_memberships,
@@ -218,14 +183,8 @@ grant select, insert, update, delete on table
   public.invoices,
   public.activity_logs
 to authenticated, service_role;
-grant select on table public.companies to authenticated;
-grant update (plan) on table public.companies to authenticated;
-grant select, insert, update, delete on table public.companies to service_role;
-grant select on table public.platform_admins to authenticated;
-grant select, insert, update, delete on table public.platform_admins to service_role;
 
 alter table public.companies enable row level security;
-alter table public.platform_admins enable row level security;
 alter table public.organizations enable row level security;
 alter table public.profiles enable row level security;
 alter table public.organization_memberships enable row level security;
@@ -242,7 +201,6 @@ alter table public.activity_logs enable row level security;
 create policy "profiles read self" on public.profiles for select to authenticated using ((select auth.uid()) = id);
 create policy "profiles insert self" on public.profiles for insert to authenticated with check ((select auth.uid()) = id);
 create policy "profiles update self" on public.profiles for update to authenticated using ((select auth.uid()) = id) with check ((select auth.uid()) = id);
-create policy platform_admins_read_self on public.platform_admins for select to authenticated using ((select auth.uid()) = user_id);
 create policy "members read memberships" on public.organization_memberships for select to authenticated using (app_private.is_org_member(organization_id));
 create policy "admins add approved member memberships" on public.organization_memberships for insert to authenticated with check (app_private.is_org_admin(organization_id) and role = 'member' and exists (select 1 from public.organization_join_requests r where r.organization_id = organization_memberships.organization_id and r.user_id = organization_memberships.user_id and r.status = 'approved'));
 create policy "admins update member memberships" on public.organization_memberships for update to authenticated using (app_private.is_org_admin(organization_id) and role = 'member') with check (app_private.is_org_admin(organization_id) and role = 'member');
@@ -253,11 +211,7 @@ create policy "users create own join requests" on public.organization_join_reque
 create policy "requesters cancel pending join requests" on public.organization_join_requests for update to authenticated using ((select auth.uid()) = user_id and status = 'pending') with check ((select auth.uid()) = user_id and status = 'canceled' and reviewed_by is null and reviewed_at is null);
 create policy "admins review join requests" on public.organization_join_requests for update to authenticated using (app_private.is_org_admin(organization_id)) with check (app_private.is_org_admin(organization_id) and status in ('approved', 'rejected') and reviewed_by = (select auth.uid()) and reviewed_at is not null);
 create policy "members read organizations" on public.organizations for select to authenticated using (app_private.is_org_member(id));
-create policy members_or_platform_admins_read_companies on public.companies for select to authenticated using (
-  exists (select 1 from public.organizations o where o.company_id = companies.id and app_private.is_org_member(o.id))
-  or exists (select 1 from public.platform_admins pa where pa.user_id = (select auth.uid()))
-);
-create policy platform_admins_update_company_plans on public.companies for update to authenticated using (exists (select 1 from public.platform_admins pa where pa.user_id = (select auth.uid()))) with check (exists (select 1 from public.platform_admins pa where pa.user_id = (select auth.uid())));
+create policy "members read companies" on public.companies for select to authenticated using (exists (select 1 from public.organizations o where o.company_id = companies.id and app_private.is_org_member(o.id)));
 create policy "members manage customers" on public.customers for all to authenticated using (app_private.is_org_member(organization_id)) with check (app_private.is_org_member(organization_id));
 create policy "members manage items" on public.item_masters for all to authenticated using (app_private.is_org_member(organization_id)) with check (app_private.is_org_member(organization_id));
 create policy "members manage quote settings" on public.quote_number_settings for all to authenticated using (app_private.is_org_member(organization_id)) with check (app_private.is_org_member(organization_id));

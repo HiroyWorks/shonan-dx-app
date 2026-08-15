@@ -1,0 +1,10 @@
+create index organizations_company_id_idx on public.organizations (company_id);
+create index organization_memberships_user_id_idx on public.organization_memberships (user_id);
+create index organization_join_requests_reviewed_by_idx on public.organization_join_requests (reviewed_by);
+create index activity_logs_actor_id_idx on public.activity_logs (actor_id);
+create index quotes_customer_id_idx on public.quotes (customer_id);
+create index quotes_created_by_idx on public.quotes (created_by);
+create index quote_items_item_master_id_idx on public.quote_items (item_master_id);
+create index quote_interaction_notes_quote_id_idx on public.quote_interaction_notes (quote_id);
+create index quote_interaction_notes_author_id_idx on public.quote_interaction_notes (author_id);
+create index invoices_quote_id_idx on public.invoices (quote_id);
