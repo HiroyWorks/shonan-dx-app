@@ -15,8 +15,12 @@
 - 見積から請求書への変換
 - Supabase Google認証
 - Supabase上の顧客・品目・見積・請求書・更新履歴・設定CRUD
-- 組織所属に基づくRLSと、管理者限定の設定・バックアップ復元
+- 組織所属に基づくRLSと、管理者限定の設定・見積削除・請求書化
 - 見積・請求書のトランザクション採番
+- 請求書の発行時内容固定と、発行済み書類の編集・削除防止
+- 明細・税額の丸め統一と、画面/DBの合計金額検証
+
+請求書保護の変更には `20260905162914_protect_issued_invoices.sql` の適用が必要です。DB移行前にこのブランチのフロントエンドだけを本番へ配信しないでください。既存書類と切替手順は [優先課題修正・第一段階](docs/優先課題修正_2026-09-06.md) を参照してください。
 
 ## 開発コマンド
 
@@ -25,6 +29,7 @@ npm install
 npm run dev
 npm run lint
 npm run build
+npm test
 ```
 
 ## Supabase設定
@@ -43,7 +48,7 @@ VITE_SUPABASE_ANON_KEY=your-publishable-or-anon-key
 VITE_APP_FREE_QUOTE_LIMIT=20
 ```
 
-DBスキーマの正本は `supabase/migrations/` です。変更時は `npx supabase migration new <変更名>` でファイルを作成し、内容を確認してから `npx supabase db push --linked` で反映します。`supabase/schema.sql` は現行スキーマをまとめて確認するための参照用ファイルです。
+DBスキーマの正本は `supabase/migrations/` です。変更時は `npx supabase migration new <変更名>` でファイルを作成し、内容を確認してから `npx supabase db push --linked` で反映します。`supabase/schema.sql` は参照用の旧スナップショットです。最新の変更はmigrationを確認してください。
 
 ### 初回データ作成
 
@@ -56,9 +61,9 @@ DBスキーマの正本は `supabase/migrations/` です。変更時は `npx sup
 
 ### 業務データとバックアップ
 
-顧客、品目、見積、請求書、更新履歴、見積番号・税率設定はSupabaseへ保存されます。見積保存、ステータス変更、メモ追加、請求書化、設定保存、JSON復元はDB関数内のトランザクションで処理します。
+顧客、品目、見積、請求書、更新履歴、見積番号・税率設定はSupabaseへ保存されます。見積保存、ステータス変更、メモ追加、請求書化、設定保存はDB関数内のトランザクションで処理します。
 
-設定画面では表示中組織のJSONを書き出せます。旧ブラウザ版のJSONを選択するか、同じブラウザに旧localStorageが残っている場合は「このブラウザの旧データをDBへ移行」から、管理者が組織データをSupabaseへ移行できます。復元は表示中組織の業務データを置き換えるため、実行前に確認ダイアログが表示されます。
+設定画面では取得済みデータをJSONへ書き出せますが、履歴は最大200件であり、全件バックアップではありません。発行原本を保護するため、全削除を伴う旧JSON復元・localStorageからの移行はUI/DBで停止しています。旧localStorage自体は削除しません。本番切替前にはDB全件の退避と復元検証が必要です。
 
 ### 組織参加フロー
 

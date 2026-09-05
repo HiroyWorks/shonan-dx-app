@@ -77,6 +77,23 @@ export type Quote = {
   lines: Line[]
   notes: Note[]
   invoiceNo?: string
+  // null/undefined means the historical tax rate was not recorded.
+  taxRate?: number | null
+}
+
+export type InvoiceSnapshot = {
+  version: 1
+  issuerName: string
+  issuerOrganization: string
+  registrationNo: string
+  customerName: string
+  customerAddress: string
+  project: string
+  memo: string
+  quoteNo: string
+  taxRate: number
+  lines: Array<{ name: string; unit: string; unitPrice: number; quantity: number; taxKind: TaxKind; amount: number }>
+  totals: { sub: number; taxable: number; tax: number; total: number }
 }
 
 export type Invoice = {
@@ -87,6 +104,7 @@ export type Invoice = {
   customerName: string
   amount: number
   createdAt: string
+  snapshot?: InvoiceSnapshot | null
 }
 
 export type Activity = {

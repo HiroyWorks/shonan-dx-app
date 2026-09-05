@@ -2,6 +2,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import './App.css'
+import PreviewPaper, { type Preview } from './components/PreviewPaper'
+import { hasTwoDecimals, isValidLine, lineAmount, MAX_AMOUNT, totals } from './lib/money'
 import {
   isGoogleProviderEnabled,
   isSupabaseConfigured,
@@ -62,7 +64,6 @@ type LocalBackup = {
     settings: Settings
   }
 }
-type Preview = { kind: 'quote'; quote: Quote } | { kind: 'invoice'; quote: Quote; invoice: Invoice }
 const FREE_LIMIT = Number(import.meta.env.VITE_APP_FREE_QUOTE_LIMIT ?? 20)
 const KEY = 'estimate-management-v3'
 const statusText: Record<QuoteStatus, string> = { Pending: '返答待ち', Won: '成約', Invoiced: '請求済' }
@@ -83,7 +84,6 @@ const navItems: { page: Page; label: string; description: string }[] = [
 ]
 const statusList: QuoteStatus[] = ['Pending', 'Won', 'Invoiced']
 const yen = new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 })
-const dateFmt = new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })
 const dateTimeFmt = new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/
 const parseDateValue = (value: string) => {
@@ -100,7 +100,6 @@ const today = () => {
 const now = () => new Date().toISOString()
 const id = () => crypto.randomUUID()
 const money = (n: number) => yen.format(n)
-const showDate = (s: string) => dateFmt.format(parseDateValue(s))
 const showDateTime = (s: string) => dateTimeFmt.format(parseDateValue(s))
 const dayStartMs = (s: string) => {
   const date = parseDateValue(s)
@@ -167,6 +166,7 @@ const statusToDb: Record<QuoteStatus, 'pending' | 'won' | 'invoiced'> = {
   Invoiced: 'invoiced',
 }
 const prepareBackupPayload = (backup: LocalBackup): BackupPayload => {
+  if (backup.data.invoices.length > 0) throw new Error('請求書を含むJSONの復元は、発行原本を保護するため停止しています。')
   const counts = new Map<string, number>()
   ;[...backup.data.customers, ...backup.data.items, ...backup.data.quotes, ...backup.data.invoices, ...backup.data.activities]
     .forEach((entry) => counts.set(entry.orgId, (counts.get(entry.orgId) ?? 0) + 1))
@@ -271,47 +271,11 @@ const prepareBackupPayload = (backup: LocalBackup): BackupPayload => {
 }
 const lineFrom = (item: Item): Line => ({ id: id(), itemId: item.id, name: item.name, unitPrice: item.unitPrice, quantity: 1, unit: item.unit, taxKind: item.taxKind ?? 'taxable' })
 const customLine = (): Line => ({ id: id(), itemId: '', name: '自由入力項目', unitPrice: 0, quantity: 1, unit: '式', taxKind: 'taxable', isCustom: true })
-const subtotal = (lines: Line[]) => lines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0)
-const taxableSubtotal = (lines: Line[]) => lines.reduce((sum, line) => {
-  return line.taxKind === 'exempt' ? sum : sum + line.unitPrice * line.quantity
-}, 0)
-const totals = (lines: Line[], taxRate: number) => {
-  const sub = subtotal(lines)
-  const taxable = taxableSubtotal(lines)
-  const tax = Math.round(taxable * taxRate / 100)
-  return { sub, taxable, tax, total: sub + tax }
-}
 const taxKindText = (taxKind?: TaxKind) => taxKind === 'exempt' ? '非課税' : '課税'
 const customerContactText = (customer: Customer) => [customer.contactTitle, customer.contact].filter(Boolean).join(' ') || '未登録'
 const customerSummary = (customer: Customer) => `住所: ${customer.address || '未登録'} / 電話: ${customer.phone || '未登録'} / 担当者: ${customerContactText(customer)} / メール: ${customer.email || '未登録'} / INVOICE NO.（企業コード）: ${customer.invoiceRegistrationNo || '未登録'} / ${customer.memo}`
 function StatusBadge({ status }: { status: QuoteStatus }) {
   return <span className={`badge badge-${status.toLowerCase()}`}>{statusText[status]}</span>
-}
-
-function PreviewPaper({ target, taxRate, invoiceRegistrationNo }: { target: Preview; taxRate: number; invoiceRegistrationNo: string }) {
-  const quote = target.quote
-  const total = totals(quote.lines, taxRate)
-  const isInvoice = target.kind === 'invoice'
-  return (
-    <div className="paper">
-      <div className="paper-header">
-        <div><p className="eyebrow">{isInvoice ? 'Invoice' : 'Estimate'}</p><h2>{isInvoice ? '請求書' : '見積書'}</h2><p>No. {isInvoice ? target.invoice.invoiceNo : quote.quoteNo}</p></div>
-        <div className="paper-date"><span>発行日</span><strong>{showDate(isInvoice ? target.invoice.createdAt : quote.createdAt)}</strong></div>
-      </div>
-      <div className="paper-meta">
-        <div className="paper-box"><span>宛先</span><strong>{quote.customerName} 御中</strong><p>{quote.project}</p></div>
-        <div className="paper-box"><span>発行者</span><strong>Estimate Management</strong><p>湘南DX合同会社 / 制作事業部</p><p>INVOICE NO.（企業コード）: {invoiceRegistrationNo || '未設定'}</p></div>
-      </div>
-      <table className="paper-table">
-        <thead><tr><th>品目</th><th>税区分</th><th>単価</th><th>数量</th><th>金額</th></tr></thead>
-        <tbody>{quote.lines.map((line) => <tr key={line.id}><td><strong>{line.name}</strong><span>{line.unit}</span></td><td><span className={line.taxKind === 'exempt' ? 'tax-chip exempt' : 'tax-chip'}>{taxKindText(line.taxKind)}</span></td><td>{money(line.unitPrice)}</td><td>{line.quantity}</td><td>{money(line.unitPrice * line.quantity)}</td></tr>)}</tbody>
-      </table>
-      <div className="paper-bottom">
-        <div className="paper-note"><span>備考</span><p>{quote.memo}</p></div>
-        <div className="paper-totals"><div><span>小計</span><strong>{money(total.sub)}</strong></div><div><span>課税対象</span><strong>{money(total.taxable)}</strong></div><div><span>消費税（{taxRate}%）</span><strong>{money(total.tax)}</strong></div><div className="paper-grand"><span>合計</span><strong>{money(total.total)}</strong></div></div>
-      </div>
-    </div>
-  )
 }
 
 const authErrorText = (error: unknown) => {
@@ -426,6 +390,8 @@ function App() {
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [activities, setActivities] = useState<Activity[]>([])
   const [settings, setSettings] = useState<Settings>({ taxRate: 10, prefix: 'Q', year: new Date().getFullYear(), nextNo: 1, invoiceRegistrationNo: '' })
+  const [savedTaxRate, setSavedTaxRate] = useState(10)
+  const [savedRegistrationNo, setSavedRegistrationNo] = useState('')
   const [customerDraft, setCustomerDraft] = useState<Omit<Customer, 'id' | 'orgId'>>({ name: '', address: '', phone: '', contact: '', contactTitle: '', email: '', invoiceRegistrationNo: '', memo: '' })
   const [editingCustomer, setEditingCustomer] = useState<string | null>(null)
   const [itemDraft, setItemDraft] = useState<{ name: string; category: string; unitPrice: number; unit: string; taxKind: TaxKind }>({ name: '', category: '', unitPrice: 0, unit: '式', taxKind: 'taxable' })
@@ -450,7 +416,8 @@ function App() {
   const orgItems = items.filter((item) => item.orgId === orgId)
   const orgQuotes = quotes.filter((quote) => quote.orgId === orgId)
   const orgInvoices = invoices.filter((invoice) => invoice.orgId === orgId)
-  const currentTotals = useMemo(() => totals(lines, settings.taxRate), [lines, settings.taxRate])
+  const formTaxRate = quotes.find((quote) => quote.id === editingQuote)?.taxRate ?? savedTaxRate
+  const currentTotals = useMemo(() => totals(lines, formTaxRate), [lines, formTaxRate])
   const noteQuote = quotes.find((quote) => quote.id === noteQuoteId) ?? null
   const isAdmin = org?.role === 'admin'
   const currentCompanyPlan = planAccess.companies.find((company) => company.id === org?.companyId)
@@ -530,6 +497,8 @@ function App() {
     setInvoices(data.invoices)
     setActivities(data.activities)
     setSettings(data.settings)
+    setSavedTaxRate(data.settings.taxRate)
+    setSavedRegistrationNo(data.settings.invoiceRegistrationNo)
     setSelectedCustomer((previous) => data.customers.some((customer) => customer.id === previous)
       ? previous
       : data.customers[0]?.id ?? '')
@@ -615,7 +584,7 @@ function App() {
     link.click()
     link.remove()
     window.setTimeout(() => URL.revokeObjectURL(url), 0)
-    setMessage('Supabase上の組織データをJSONとして書き出しました。')
+    setMessage('画面取得済みデータをJSONへ書き出しました。履歴は最大200件のため、全件バックアップではありません。')
   }
 
   const importBackup = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -698,7 +667,7 @@ function App() {
   }, [activities, orgId])
 
   const updateQuoteStatus = async (quote: Quote, status: QuoteStatus) => {
-    if (!org || mutationPending || quote.status === status) return
+    if (!org || mutationPending || quote.status === status || quote.invoiceNo || quote.status === 'Invoiced' || status === 'Invoiced') return
     setMutationPending(true)
     try {
       await updateQuoteStatusInDb(quote.id, status)
@@ -735,16 +704,19 @@ function App() {
       const item = orgItems.find((candidate) => candidate.id === value)
       return item ? { ...line, itemId: item.id, name: item.name, unitPrice: item.unitPrice, unit: item.unit, taxKind: item.taxKind ?? 'taxable', isCustom: false } : line
     }
-    if (field === 'unitPrice' || field === 'quantity') return { ...line, [field]: Math.max(field === 'quantity' ? 1 : 0, Number(value) || 0) }
+    if (field === 'unitPrice' || field === 'quantity') return { ...line, [field]: Math.max(0, Number(value) || 0) }
     return { ...line, [field]: value }
   }))
   const submitQuote = async () => {
     if (!org || mutationPending) return
     const customer = customers.find((candidate) => candidate.id === selectedCustomer)
     if (!customer) return setMessage('顧客を選択してください。')
-    if (lines.length === 0 || lines.some((line) => !line.name.trim() || line.quantity <= 0 || line.unitPrice < 0)) return setMessage('見積明細の品目名、単価、数量を確認してください。')
+    if (lines.length === 0 || lines.some((line) => !line.name.trim() || !isValidLine(line))) return setMessage('単価は0以上の整数、数量は0より大きい小数2桁以内で入力してください。')
+    if (!hasTwoDecimals(formTaxRate) || formTaxRate < 0 || formTaxRate > 100 || currentTotals.total > MAX_AMOUNT) return setMessage('税率は0〜100%の小数2桁以内、合計金額は2,147,483,647円以内で入力してください。')
     if (!canAddQuote && !editingQuote) return setMessage(`フリープランは見積${activeFreeQuoteLimit}件までです。Proへの変更は運営管理者へお問い合わせください。`)
     const previous = editingQuote ? quotes.find((quote) => quote.id === editingQuote) : undefined
+    if (previous?.invoiceNo || previous?.status === 'Invoiced') return setMessage('請求書化済みの見積は編集できません。複製して新しい見積を作成してください。')
+    if (previous && previous.taxRate == null && !window.confirm(`この見積には当時の税率がありません。税率${formTaxRate}%・合計${money(currentTotals.total)}で内容を確認し、更新しますか？`)) return
     setMutationPending(true)
     try {
       const quoteId = previous?.id ?? id()
@@ -755,6 +727,7 @@ function App() {
         project,
         memo,
         lines,
+        expectedAmount: currentTotals.total,
       })
       const data = await refreshOrganization(org)
       const saved = data.quotes.find((quote) => quote.id === quoteId)
@@ -762,7 +735,9 @@ function App() {
       resetForm()
     } catch (error) {
       const detail = error instanceof Error ? error.message : ''
-      setMessage(detail.includes('free plan quote limit reached')
+      setMessage(detail.includes('quote total changed')
+        ? '保存直前に税率・金額が変わりました。保存は取り消されています。画面を再読み込みして金額を確認してください。'
+        : detail.includes('free plan quote limit reached')
         ? `フリープランは見積${activeFreeQuoteLimit}件までです。`
         : '見積を保存できませんでした。入力内容、権限、通信状態を確認してください。')
     } finally {
@@ -770,6 +745,7 @@ function App() {
     }
   }
   const editQuote = (quote: Quote) => {
+    if (quote.invoiceNo || quote.status === 'Invoiced') return setMessage('請求書化済みの見積は編集できません。')
     setSelectedCustomer(quote.customerId)
     setProject(quote.project)
     setMemo(quote.memo)
@@ -789,13 +765,13 @@ function App() {
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
   }
   const deleteQuote = async (quote: Quote) => {
-    if (!org || mutationPending) return
+    if (!org || !isAdmin || mutationPending || quote.invoiceNo || quote.status === 'Invoiced') return
     if (!window.confirm(`${quote.quoteNo} を削除しますか？`)) return
     setMutationPending(true)
     try {
       await deleteQuoteFromDb(org.id, quote.id)
       await refreshOrganization(org)
-      setMessage(`${quote.quoteNo} を削除しました。関連する請求書も削除されます。`)
+      setMessage(`${quote.quoteNo} を削除しました。`)
     } catch {
       setMessage('見積を削除できませんでした。権限と通信状態を確認してください。')
     } finally {
@@ -806,6 +782,9 @@ function App() {
     if (!org || mutationPending) return
     const existing = invoices.find((invoice) => invoice.quoteId === quote.id)
     if (existing) return setPreview({ kind: 'invoice', invoice: existing, quote })
+    if (!isAdmin) return setMessage('請求書化は組織管理者だけが実行できます。')
+    if (quote.taxRate == null) return setMessage('作成時の税率が未確認です。見積を編集し、内容・税率・合計を確認して保存してください。')
+    if (!window.confirm(`${quote.quoteNo} を請求書化しますか？発行時の内容が固定され、この見積と請求書は編集・削除できなくなります。`)) return
     setMutationPending(true)
     try {
       await createInvoice(quote.id)
@@ -902,6 +881,7 @@ function App() {
   }
   const persistSettings = async () => {
     if (!org || !isAdmin || mutationPending) return
+    if (!hasTwoDecimals(settings.taxRate) || settings.taxRate < 0 || settings.taxRate > 100 || !Number.isInteger(settings.nextNo) || settings.nextNo < 1) return setMessage('税率は0〜100%の小数2桁以内、次番号は1以上の整数で入力してください。')
     setMutationPending(true)
     try {
       await saveWorkspaceSettings(org.id, settings)
@@ -918,9 +898,10 @@ function App() {
   }
   const draftPreview = () => {
     if (!org) return
+    if (!lines.length || lines.some((line) => !line.name.trim() || !isValidLine(line)) || currentTotals.total > MAX_AMOUNT) return setMessage('見積明細の品目名、整数の単価、数量（小数2桁以内）、合計金額を確認してください。')
     const customer = customers.find((candidate) => candidate.id === selectedCustomer)
     if (!customer) return
-    setPreview({ kind: 'quote', quote: { id: 'draft', orgId, quoteNo: editingQuote ? quotes.find((quote) => quote.id === editingQuote)?.quoteNo ?? nextQuoteNo : nextQuoteNo, customerId: customer.id, customerName: customer.name, project, amount: currentTotals.total, status: 'Pending', createdAt: now(), updatedAt: now(), memo, lines, notes: [] } })
+    setPreview({ kind: 'quote', quote: { id: 'draft', orgId, quoteNo: editingQuote ? quotes.find((quote) => quote.id === editingQuote)?.quoteNo ?? nextQuoteNo : nextQuoteNo, customerId: customer.id, customerName: customer.name, project, amount: currentTotals.total, status: 'Pending', createdAt: now(), updatedAt: now(), memo, lines, notes: [], taxRate: formTaxRate } })
   }
   const selectedCustomerData = orgCustomers.find((customer) => customer.id === selectedCustomer)
 
@@ -975,19 +956,19 @@ function App() {
         </section>
         <section className="panel dashboard-panel">
           <div className="panel-head"><div><p className="eyebrow">Quotes</p><h2>提出済みの見積一覧</h2></div><div className="filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="見積番号・顧客・案件で検索" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'All' | QuoteStatus)}><option value="All">すべてのステータス</option>{statusList.map((status) => <option key={status} value={status}>{statusText[status]}</option>)}</select><select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}><option value="createdAt">提出日順</option><option value="updatedAt">更新日順</option><option value="amount">金額順</option><option value="quoteNo">見積番号順</option></select></div></div>
-          <div className="table-wrap"><table className="data-table"><thead><tr><th>見積番号</th><th>取引先</th><th>案件名</th><th>金額</th><th>ステータス</th><th>経過</th><th>提出日</th><th>更新日</th><th>操作</th></tr></thead><tbody>{filteredQuotes.map((quote) => { const waiting = days(quote.createdAt); const attention = quote.status === 'Pending' && waiting >= 10; return <tr key={quote.id} className={attention ? 'row-alert' : undefined}><td><span className={attention ? 'dot danger' : 'dot'} />{quote.quoteNo}</td><td>{quote.customerName}</td><td>{quote.project}</td><td className="amount">{money(quote.amount)}</td><td><StatusBadge status={quote.status} /><select className="compact-select" value={quote.status} disabled={mutationPending} onChange={(event) => void updateQuoteStatus(quote, event.target.value as QuoteStatus)}>{statusList.map((status) => <option key={status} value={status}>{statusText[status]}</option>)}</select></td><td className={attention ? 'danger-text' : undefined}>{quote.status === 'Pending' ? `${waiting}日経過` : '対応完了'}</td><td>{showDateTime(quote.createdAt)}</td><td>{showDateTime(quote.updatedAt)}</td><td><div className="table-actions"><button onClick={() => setPreview({ kind: 'quote', quote })}>プレビュー</button><button onClick={() => editQuote(quote)}>編集</button><button onClick={() => duplicateQuote(quote)}>複製</button><button disabled={mutationPending} onClick={() => void convertToInvoice(quote)}>請求書化</button><button onClick={() => setNoteQuoteId(quote.id)}>メモ {quote.notes.length}</button><button className="danger-button" disabled={mutationPending} onClick={() => void deleteQuote(quote)}>削除</button></div></td></tr> })}</tbody></table></div>
+          <div className="table-wrap"><table className="data-table"><thead><tr><th>見積番号</th><th>取引先</th><th>案件名</th><th>金額</th><th>ステータス</th><th>経過</th><th>提出日</th><th>更新日</th><th>操作</th></tr></thead><tbody>{filteredQuotes.map((quote) => { const waiting = days(quote.createdAt); const attention = quote.status === 'Pending' && waiting >= 10; return <tr key={quote.id} className={attention ? 'row-alert' : undefined}><td><span className={attention ? 'dot danger' : 'dot'} />{quote.quoteNo}</td><td>{quote.customerName}</td><td>{quote.project}</td><td className="amount">{money(quote.amount)}</td><td><StatusBadge status={quote.status} /><select className="compact-select" value={quote.status} disabled={mutationPending || Boolean(quote.invoiceNo) || quote.status === 'Invoiced'} onChange={(event) => void updateQuoteStatus(quote, event.target.value as QuoteStatus)}>{statusList.filter((status) => status !== 'Invoiced' || quote.status === 'Invoiced').map((status) => <option key={status} value={status}>{statusText[status]}</option>)}</select></td><td className={attention ? 'danger-text' : undefined}>{quote.status === 'Pending' ? `${waiting}日経過` : '対応完了'}</td><td>{showDateTime(quote.createdAt)}</td><td>{showDateTime(quote.updatedAt)}</td><td><div className="table-actions"><button onClick={() => setPreview({ kind: 'quote', quote })}>プレビュー</button><button disabled={Boolean(quote.invoiceNo) || quote.status === 'Invoiced'} onClick={() => editQuote(quote)}>編集</button><button onClick={() => duplicateQuote(quote)}>複製</button><button disabled={mutationPending || !isAdmin || (!quote.invoiceNo && quote.taxRate == null)} onClick={() => void convertToInvoice(quote)}>{quote.invoiceNo ? '請求書を確認' : '請求書化'}</button><button onClick={() => setNoteQuoteId(quote.id)}>メモ {quote.notes.length}</button><button className="danger-button" disabled={mutationPending || !isAdmin || Boolean(quote.invoiceNo) || quote.status === 'Invoiced'} onClick={() => void deleteQuote(quote)}>削除</button></div></td></tr> })}</tbody></table></div>
         </section>
         </>}
         {activePage === 'quote' && <>
         <section className="panel quote-panel">
           <div className="panel-head"><div><p className="eyebrow">Speed quote</p><h2>{editingQuote ? '見積編集' : '見積入力'}</h2></div></div>
-          <div className="quote-layout"><div className="quote-form"><div className="field-grid"><label><span>顧客名</span><select value={selectedCustomer} onChange={(event) => setSelectedCustomer(event.target.value)}>{orgCustomers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label><label><span>案件名</span><input value={project} onChange={(event) => setProject(event.target.value)} /></label></div><div className="customer-hint">{selectedCustomerData ? customerSummary(selectedCustomerData) : '顧客マスタを追加してください。'}</div><div className="form-table-wrap"><table className="line-table"><thead><tr><th>品目</th><th>税区分</th><th>単価</th><th>数量</th><th>金額</th><th></th></tr></thead><tbody>{lines.map((line) => <tr key={line.id}><td>{line.isCustom ? <input value={line.name} onChange={(event) => changeLine(line.id, 'name', event.target.value)} placeholder="自由入力項目" /> : <select value={line.itemId} onChange={(event) => changeLine(line.id, 'itemId', event.target.value)}>{orgItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}</td><td><select value={line.taxKind ?? 'taxable'} onChange={(event) => changeLine(line.id, 'taxKind', event.target.value)}><option value="taxable">課税</option><option value="exempt">非課税</option></select></td><td><UnitPriceInput key={`${line.id}-${line.itemId}`} value={line.unitPrice} onChange={(value) => changeLine(line.id, 'unitPrice', String(value))} /></td><td><input type="number" value={line.quantity} onChange={(event) => changeLine(line.id, 'quantity', event.target.value)} /></td><td className="amount">{money(line.unitPrice * line.quantity)}</td><td><button disabled={lines.length === 1} onClick={() => setLines((prev) => prev.filter((candidate) => candidate.id !== line.id))}>x</button></td></tr>)}</tbody></table></div><div className="quote-footer"><div className="line-add-actions"><button className="btn ghost" onClick={() => orgItems[0] && setLines((prev) => [...prev, lineFrom(orgItems[0])])}>+ マスタ明細を追加</button><button className="btn ghost" onClick={() => setLines((prev) => [...prev, customLine()])}>+ 自由明細を追加</button></div><div className="summary-inline"><span>小計 {money(currentTotals.sub)}</span><span>課税対象 {money(currentTotals.taxable)}</span><span>消費税 {money(currentTotals.tax)}</span><strong>合計 {money(currentTotals.total)}</strong></div></div><label className="memo-field"><span>メモ</span><textarea value={memo} onChange={(event) => setMemo(event.target.value)} /></label><div className="quote-actions"><button className="btn ghost" onClick={resetForm}>入力をリセット</button><button className="btn ghost" onClick={draftPreview}>見積書を確認</button><button className="btn primary" disabled={mutationPending || !selectedCustomer} onClick={() => void submitQuote()}>{mutationPending ? '保存中' : editingQuote ? '更新する' : '提出する'}</button></div></div></div>
+          <div className="quote-layout"><div className="quote-form"><div className="field-grid"><label><span>顧客名</span><select value={selectedCustomer} onChange={(event) => setSelectedCustomer(event.target.value)}>{orgCustomers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label><label><span>案件名</span><input value={project} onChange={(event) => setProject(event.target.value)} /></label></div><div className="customer-hint">{selectedCustomerData ? customerSummary(selectedCustomerData) : '顧客マスタを追加してください。'}</div><div className="form-table-wrap"><table className="line-table"><thead><tr><th>品目</th><th>税区分</th><th>単価</th><th>数量</th><th>金額</th><th></th></tr></thead><tbody>{lines.map((line) => <tr key={line.id}><td>{line.isCustom ? <input value={line.name} onChange={(event) => changeLine(line.id, 'name', event.target.value)} placeholder="自由入力項目" /> : <select value={line.itemId} onChange={(event) => changeLine(line.id, 'itemId', event.target.value)}>{orgItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}</td><td><select value={line.taxKind ?? 'taxable'} onChange={(event) => changeLine(line.id, 'taxKind', event.target.value)}><option value="taxable">課税</option><option value="exempt">非課税</option></select></td><td><UnitPriceInput key={`${line.id}-${line.itemId}`} value={line.unitPrice} onChange={(value) => changeLine(line.id, 'unitPrice', String(value))} /></td><td><input type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => changeLine(line.id, 'quantity', event.target.value)} /></td><td className="amount">{money(lineAmount(line))}</td><td><button disabled={lines.length === 1} onClick={() => setLines((prev) => prev.filter((candidate) => candidate.id !== line.id))}>x</button></td></tr>)}</tbody></table></div><div className="quote-footer"><div className="line-add-actions"><button className="btn ghost" onClick={() => orgItems[0] && setLines((prev) => [...prev, lineFrom(orgItems[0])])}>+ マスタ明細を追加</button><button className="btn ghost" onClick={() => setLines((prev) => [...prev, customLine()])}>+ 自由明細を追加</button></div><div className="summary-inline"><span>小計 {money(currentTotals.sub)}</span><span>課税対象 {money(currentTotals.taxable)}</span><span>消費税（{formTaxRate}%）{money(currentTotals.tax)}</span><strong>合計 {money(currentTotals.total)}</strong></div></div><label className="memo-field"><span>メモ</span><textarea value={memo} onChange={(event) => setMemo(event.target.value)} /></label><div className="quote-actions"><button className="btn ghost" onClick={resetForm}>入力をリセット</button><button className="btn ghost" onClick={draftPreview}>見積書を確認</button><button className="btn primary" disabled={mutationPending || !selectedCustomer} onClick={() => void submitQuote()}>{mutationPending ? '保存中' : editingQuote ? '更新する' : '見積を保存'}</button></div></div></div>
         </section>
         </>}
         {activePage === 'invoices' && <>
         <section className="panel invoice-panel">
           <div className="panel-head"><div><p className="eyebrow">Invoices</p><h2>請求書一覧</h2></div><p className="section-note">見積から変換した請求書を確認できます。</p></div>
-          <div className="table-wrap"><table className="data-table invoice-table"><thead><tr><th>請求書番号</th><th>取引先</th><th>金額</th><th>作成日</th><th>操作</th></tr></thead><tbody>{orgInvoices.map((invoice) => { const quote = quotes.find((candidate) => candidate.id === invoice.quoteId); return <tr key={invoice.id}><td>{invoice.invoiceNo}</td><td>{invoice.customerName}</td><td className="amount">{money(invoice.amount)}</td><td>{showDateTime(invoice.createdAt)}</td><td><div className="table-actions invoice-actions"><button disabled={!quote} onClick={() => quote && setPreview({ kind: 'invoice', invoice, quote })}>プレビュー</button></div></td></tr> })}</tbody></table></div>
+          <div className="table-wrap"><table className="data-table invoice-table"><thead><tr><th>請求書番号</th><th>取引先</th><th>金額</th><th>作成日</th><th>操作</th></tr></thead><tbody>{orgInvoices.map((invoice) => { const quote = quotes.find((candidate) => candidate.id === invoice.quoteId); return <tr key={invoice.id}><td>{invoice.invoiceNo}{!invoice.snapshot && <span className="danger-text">（要原本確認）</span>}</td><td>{invoice.customerName}</td><td className="amount">{money(invoice.amount)}</td><td>{showDateTime(invoice.createdAt)}</td><td><div className="table-actions invoice-actions"><button disabled={!quote} onClick={() => quote && setPreview({ kind: 'invoice', invoice, quote })}>プレビュー</button></div></td></tr> })}</tbody></table></div>
         </section>
         </>}
         {activePage === 'customers' && <>
@@ -1011,14 +992,14 @@ function App() {
               <div className="settings-strip">
                 <label><span>見積番号</span><input disabled={!isAdmin} value={settings.prefix} onChange={(event) => setSettings((prev) => ({ ...prev, prefix: event.target.value || 'Q' }))} /></label>
                 <label><span>次番号</span><input disabled={!isAdmin} type="number" value={settings.nextNo} onChange={(event) => setSettings((prev) => ({ ...prev, nextNo: Math.max(1, Number(event.target.value) || 1) }))} /></label>
-                <label><span>税率</span><input disabled={!isAdmin} type="number" value={settings.taxRate} onChange={(event) => setSettings((prev) => ({ ...prev, taxRate: Math.max(0, Number(event.target.value) || 0) }))} /></label>
-                <label><span>INVOICE NO.（企業コード）</span><input disabled={!isAdmin} value={settings.invoiceRegistrationNo} onChange={(event) => setSettings((prev) => ({ ...prev, invoiceRegistrationNo: event.target.value }))} /></label>
+                <label><span>税率（新規見積の初期値）</span><input disabled={!isAdmin} type="number" min="0" max="100" step="0.01" value={settings.taxRate} onChange={(event) => setSettings((prev) => ({ ...prev, taxRate: Math.max(0, Number(event.target.value) || 0) }))} /></label>
+                <label><span>適格請求書発行事業者登録番号</span><input disabled={!isAdmin} value={settings.invoiceRegistrationNo} onChange={(event) => setSettings((prev) => ({ ...prev, invoiceRegistrationNo: event.target.value }))} /></label>
               </div>
               <div className="backup-actions"><button className="btn primary" type="button" disabled={!isAdmin || mutationPending} onClick={() => void persistSettings()}>{mutationPending ? '保存中' : '設定を保存'}</button></div>
             </div>
             <div className="settings-card backup-card">
               <div className="settings-card-head"><p className="eyebrow">Database backup</p><h3>組織データのバックアップ</h3></div>
-              <p className="plan-admin-note">表示中組織の顧客、品目、見積、請求書、更新履歴、設定をJSONとして保存します。旧ブラウザ版のJSONも管理者がSupabaseへ復元できます。</p>
+              <p className="plan-admin-note">画面取得済みデータをJSONへ書き出します。履歴は最大200件で、全件バックアップではありません。発行原本の保護と全件復元の検証が完了するまで、JSON復元・旧ブラウザデータ移行は停止しています。</p>
               <div className="backup-summary" aria-label="バックアップ対象件数">
                 <span>顧客 {customers.length}件</span>
                 <span>品目 {items.length}件</span>
@@ -1028,10 +1009,10 @@ function App() {
               </div>
               <div className="backup-actions">
                 <button className="btn primary" type="button" onClick={exportBackup}>JSONを書き出す</button>
-                {legacyBackupAvailable && <button className="btn ghost" type="button" disabled={!isAdmin || mutationPending} onClick={() => void migrateLegacyBrowserData()}>このブラウザの旧データをDBへ移行</button>}
-                <label className={`btn ghost backup-import-button${!isAdmin || mutationPending ? ' disabled' : ''}`}>
-                  JSONをDBへ復元
-                  <input type="file" disabled={!isAdmin || mutationPending} accept="application/json,.json" onChange={importBackup} />
+                {legacyBackupAvailable && <button className="btn ghost" type="button" disabled title="発行原本の保護と復元検証が完了するまで停止中" onClick={() => void migrateLegacyBrowserData()}>このブラウザの旧データをDBへ移行</button>}
+                <label className="btn ghost backup-import-button disabled" title="発行原本を保護するため停止中">
+                  JSON復元（停止中）
+                  <input type="file" disabled accept="application/json,.json" onChange={importBackup} />
                 </label>
               </div>
             </div>
@@ -1063,7 +1044,7 @@ function App() {
       </div>
 
       {noteQuote && <div className="modal-overlay" onMouseDown={() => setNoteQuoteId(null)}><div className="modal-window small-modal" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><p className="eyebrow">Client memo</p><h2>顧客やり取りメモ</h2><span>{noteQuote.quoteNo} / {noteQuote.customerName}</span></div><button className="btn ghost" onClick={() => setNoteQuoteId(null)}>閉じる</button></div><div className="modal-body"><textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="やり取り内容を入力" /><button className="btn primary" disabled={mutationPending} onClick={() => void addNote()}>{mutationPending ? '保存中' : 'メモを追加'}</button><div className="note-list">{noteQuote.notes.map((note) => <article key={note.id}><time>{showDateTime(note.createdAt)} / {note.author}</time><p>{note.body}</p></article>)}</div></div></div></div>}
-      {preview && <div className="modal-overlay" onMouseDown={() => setPreview(null)}><div className="modal-window" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><p className="eyebrow">Preview</p><h2>{preview.kind === 'invoice' ? '請求書プレビュー' : '見積書プレビュー'}</h2></div><div className="modal-actions"><button className="btn primary" onClick={() => window.print()}>PDF化 / 印刷</button><button className="btn ghost" onClick={() => setPreview(null)}>閉じる</button></div></div><div className="paper-wrap"><PreviewPaper target={preview} taxRate={settings.taxRate} invoiceRegistrationNo={settings.invoiceRegistrationNo} /></div></div></div>}
+      {preview && <div className="modal-overlay" onMouseDown={() => setPreview(null)}><div className="modal-window" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><p className="eyebrow">Preview</p><h2>{preview.kind === 'invoice' ? '請求書プレビュー' : '見積書プレビュー'}</h2></div><div className="modal-actions"><button className="btn primary" disabled={preview.kind === 'invoice' ? !preview.invoice.snapshot : preview.quote.id !== 'draft' && preview.quote.taxRate == null} onClick={() => window.print()}>PDF化 / 印刷</button><button className="btn ghost" onClick={() => setPreview(null)}>閉じる</button></div></div><div className="paper-wrap"><PreviewPaper target={preview} taxRate={formTaxRate} invoiceRegistrationNo={savedRegistrationNo} issuerName={org.company} issuerOrganization={org.name} /></div></div></div>}
     </div>
   )
 }

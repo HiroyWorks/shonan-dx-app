@@ -36,6 +36,12 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Test document integrity and database policies
+        run: npm test
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 

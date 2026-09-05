@@ -1,5 +1,6 @@
 import type { User as AuthUser } from '@supabase/supabase-js'
 import { supabase } from './supabase'
+import { parseInvoiceSnapshot } from './invoiceSnapshot'
 import type {
   Activity,
   ActivityKind,
@@ -53,6 +54,7 @@ type QuoteRow = {
   status: 'pending' | 'won' | 'invoiced'
   created_at: string
   updated_at: string
+  tax_rate: number | string | null
 }
 type QuoteItemRow = {
   id: string
@@ -79,6 +81,7 @@ type InvoiceRow = {
   invoice_no: string
   amount: number
   created_at: string
+  snapshot: unknown
 }
 type ActivityRow = {
   id: string
@@ -206,15 +209,16 @@ export async function loadWorkspaceContext(authUser: AuthUser): Promise<Workspac
 
 export async function loadOrganizationData(organization: Organization): Promise<OrganizationData> {
   const organizationId = organization.id
-  const [customerResult, itemResult, quoteResult, invoiceResult, activityResult, settingsResult] = await Promise.all([
+  const [customerResult, itemResult, quoteResult, invoiceResult, activityResult, settingsResult, registrationResult] = await Promise.all([
     supabase.from('customers').select('id, organization_id, name, address, phone, contact, contact_title, email, invoice_registration_no, memo').eq('organization_id', organizationId).order('name'),
     supabase.from('item_masters').select('id, organization_id, name, category, unit_price, unit, tax_kind').eq('organization_id', organizationId).order('name'),
-    supabase.from('quotes').select('id, organization_id, customer_id, quote_no, project, memo, amount, status, created_at, updated_at').eq('organization_id', organizationId).order('created_at', { ascending: false }),
-    supabase.from('invoices').select('id, organization_id, quote_id, invoice_no, amount, created_at').eq('organization_id', organizationId).order('created_at', { ascending: false }),
+    supabase.from('quotes').select('id, organization_id, customer_id, quote_no, project, memo, amount, status, created_at, updated_at, tax_rate').eq('organization_id', organizationId).order('created_at', { ascending: false }),
+    supabase.from('invoices').select('id, organization_id, quote_id, invoice_no, amount, created_at, snapshot').eq('organization_id', organizationId).order('created_at', { ascending: false }),
     supabase.from('activity_logs').select('id, organization_id, kind, title, description, created_at').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(200),
     supabase.from('quote_number_settings').select('prefix, year, next_sequence, tax_rate').eq('organization_id', organizationId).maybeSingle(),
+    supabase.from('companies').select('invoice_registration_no').eq('id', organization.companyId).single(),
   ])
-  ;[customerResult, itemResult, quoteResult, invoiceResult, activityResult, settingsResult].forEach((result) => throwIfError(result.error))
+  ;[customerResult, itemResult, quoteResult, invoiceResult, activityResult, settingsResult, registrationResult].forEach((result) => throwIfError(result.error))
 
   const customerRows = resultData<CustomerRow[]>(customerResult.data ?? [])
   const itemRows = resultData<ItemRow[]>(itemResult.data ?? [])
@@ -284,6 +288,7 @@ export async function loadOrganizationData(organization: Organization): Promise<
     status: statusFromDb[quote.status],
     createdAt: quote.created_at,
     updatedAt: quote.updated_at,
+    taxRate: quote.tax_rate === null ? null : Number(quote.tax_rate),
     memo: quote.memo,
     lines: linesByQuote.get(quote.id) ?? [],
     notes: notesByQuote.get(quote.id) ?? [],
@@ -291,14 +296,16 @@ export async function loadOrganizationData(organization: Organization): Promise<
   }))
   const invoices: Invoice[] = invoiceRows.map((invoice) => {
     const quote = quotes.find((candidate) => candidate.id === invoice.quote_id)
+    const snapshot = parseInvoiceSnapshot(invoice.snapshot, invoice.amount)
     return {
       id: invoice.id,
       orgId: invoice.organization_id,
       invoiceNo: invoice.invoice_no,
       quoteId: invoice.quote_id,
-      customerName: quote?.customerName ?? '削除済み顧客',
+      customerName: snapshot?.customerName ?? quote?.customerName ?? '確認が必要な顧客',
       amount: invoice.amount,
       createdAt: invoice.created_at,
+      snapshot,
     }
   })
 
@@ -328,7 +335,7 @@ export async function loadOrganizationData(organization: Organization): Promise<
       year: settingsRow?.year ?? new Date().getFullYear(),
       nextNo: settingsRow?.next_sequence ?? 1,
       taxRate: Number(settingsRow?.tax_rate ?? 10),
-      invoiceRegistrationNo: organization.invoiceRegistrationNo,
+      invoiceRegistrationNo: resultData<{ invoice_registration_no: string }>(registrationResult.data).invoice_registration_no,
     },
   }
 }
@@ -385,13 +392,15 @@ export async function saveQuote(input: {
   project: string
   memo: string
   lines: Line[]
+  expectedAmount: number
 }) {
-  const result = await supabase.rpc('save_quote', {
+  const result = await supabase.rpc('save_quote_checked', {
     p_organization_id: input.organizationId,
     p_quote_id: input.quoteId,
     p_customer_id: input.customerId,
     p_project: input.project,
     p_memo: input.memo,
+    p_expected_amount: input.expectedAmount,
     p_lines: input.lines.map((line, index) => ({
       id: line.id,
       item_master_id: line.isCustom || !line.itemId ? null : line.itemId,
@@ -412,8 +421,9 @@ export async function updateQuoteStatus(quoteId: string, status: QuoteStatus) {
 }
 
 export async function deleteQuote(organizationId: string, quoteId: string) {
-  const result = await supabase.from('quotes').delete().eq('id', quoteId).eq('organization_id', organizationId)
+  const result = await supabase.from('quotes').delete().eq('id', quoteId).eq('organization_id', organizationId).select('id')
   throwIfError(result.error)
+  if (!result.data?.length) throw new Error('quote deletion was not permitted')
 }
 
 export async function createInvoice(quoteId: string) {
