@@ -1,6 +1,7 @@
 import type { User as AuthUser } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { parseInvoiceSnapshot } from './invoiceSnapshot'
+import { allRows } from './workflowRepository'
 import type {
   Activity,
   ActivityKind,
@@ -82,6 +83,8 @@ type InvoiceRow = {
   amount: number
   created_at: string
   snapshot: unknown
+  due_date: string | null
+  bank_details: string
 }
 type ActivityRow = {
   id: string
@@ -209,14 +212,15 @@ export async function loadWorkspaceContext(authUser: AuthUser): Promise<Workspac
 
 export async function loadOrganizationData(organization: Organization): Promise<OrganizationData> {
   const organizationId = organization.id
-  const [customerResult, itemResult, quoteResult, invoiceResult, activityResult, settingsResult, registrationResult] = await Promise.all([
-    supabase.from('customers').select('id, organization_id, name, address, phone, contact, contact_title, email, invoice_registration_no, memo').eq('organization_id', organizationId).order('name'),
-    supabase.from('item_masters').select('id, organization_id, name, category, unit_price, unit, tax_kind').eq('organization_id', organizationId).order('name'),
-    supabase.from('quotes').select('id, organization_id, customer_id, quote_no, project, memo, amount, status, created_at, updated_at, tax_rate').eq('organization_id', organizationId).order('created_at', { ascending: false }),
-    supabase.from('invoices').select('id, organization_id, quote_id, invoice_no, amount, created_at, snapshot').eq('organization_id', organizationId).order('created_at', { ascending: false }),
+  const [customerResult, itemResult, quoteResult, invoiceResult, activityResult, settingsResult, registrationResult, revisionRows] = await Promise.all([
+    allRows('customers', organizationId).then((data) => ({ data, error: null })),
+    allRows('item_masters', organizationId).then((data) => ({ data, error: null })),
+    allRows('quotes', organizationId).then((data) => ({ data, error: null })),
+    allRows('invoices', organizationId).then((data) => ({ data, error: null })),
     supabase.from('activity_logs').select('id, organization_id, kind, title, description, created_at').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(200),
     supabase.from('quote_number_settings').select('prefix, year, next_sequence, tax_rate').eq('organization_id', organizationId).maybeSingle(),
     supabase.from('companies').select('invoice_registration_no').eq('id', organization.companyId).single(),
+    allRows('quote_revisions', organizationId, 'id', 'id, quote_id, revision'),
   ])
   ;[customerResult, itemResult, quoteResult, invoiceResult, activityResult, settingsResult, registrationResult].forEach((result) => throwIfError(result.error))
 
@@ -230,15 +234,26 @@ export async function loadOrganizationData(organization: Organization): Promise<
 
   let quoteItemRows: QuoteItemRow[] = []
   let noteRows: NoteRow[] = []
-  if (quoteIds.length > 0) {
+  for (let offset = 0; offset < quoteIds.length; offset += 100) {
+    const ids = quoteIds.slice(offset, offset + 100)
+    for (let from = 0; ; from += 500) {
     const [lineResult, noteResult] = await Promise.all([
-      supabase.from('quote_items').select('id, quote_id, item_master_id, name, unit, unit_price, quantity, tax_kind, sort_order').in('quote_id', quoteIds).order('sort_order'),
-      supabase.from('quote_interaction_notes').select('id, quote_id, author_display_name, body, created_at').in('quote_id', quoteIds).order('created_at', { ascending: false }),
+      supabase.from('quote_items').select('id, quote_id, item_master_id, name, unit, unit_price, quantity, tax_kind, sort_order').in('quote_id', ids).order('id').range(from, from + 499),
+      supabase.from('quote_interaction_notes').select('id, quote_id, author_display_name, body, created_at').in('quote_id', ids).order('id').range(from, from + 499),
     ])
     throwIfError(lineResult.error)
     throwIfError(noteResult.error)
-    quoteItemRows = resultData<QuoteItemRow[]>(lineResult.data ?? [])
-    noteRows = resultData<NoteRow[]>(noteResult.data ?? [])
+    quoteItemRows.push(...resultData<QuoteItemRow[]>(lineResult.data ?? []))
+    noteRows.push(...resultData<NoteRow[]>(noteResult.data ?? []))
+    if ((lineResult.data?.length ?? 0) < 500 && (noteResult.data?.length ?? 0) < 500) break
+    }
+  }
+  quoteItemRows = quoteItemRows.sort((a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id))
+  noteRows = noteRows.sort((a, b) => b.created_at.localeCompare(a.created_at))
+  const revisionByQuote = new Map<string, number>()
+  for (const r of revisionRows) {
+    if (typeof r.quote_id !== 'string' || typeof r.revision !== 'number') throw new Error('見積版番号の形式が不正です。')
+    revisionByQuote.set(r.quote_id, Math.max(revisionByQuote.get(r.quote_id) ?? 0, r.revision))
   }
 
   const customers: Customer[] = customerRows.map((customer) => ({
@@ -289,6 +304,7 @@ export async function loadOrganizationData(organization: Organization): Promise<
     createdAt: quote.created_at,
     updatedAt: quote.updated_at,
     taxRate: quote.tax_rate === null ? null : Number(quote.tax_rate),
+    revision: revisionByQuote.get(quote.id) ?? 0,
     memo: quote.memo,
     lines: linesByQuote.get(quote.id) ?? [],
     notes: notesByQuote.get(quote.id) ?? [],
@@ -306,6 +322,8 @@ export async function loadOrganizationData(organization: Organization): Promise<
       amount: invoice.amount,
       createdAt: invoice.created_at,
       snapshot,
+      dueDate: invoice.due_date,
+      bankDetails: invoice.bank_details,
     }
   })
 
@@ -393,14 +411,16 @@ export async function saveQuote(input: {
   memo: string
   lines: Line[]
   expectedAmount: number
+  expectedRevision: number
 }) {
-  const result = await supabase.rpc('save_quote_checked', {
+  const result = await supabase.rpc('save_quote_versioned', {
     p_organization_id: input.organizationId,
     p_quote_id: input.quoteId,
     p_customer_id: input.customerId,
     p_project: input.project,
     p_memo: input.memo,
     p_expected_amount: input.expectedAmount,
+    p_expected_revision: input.expectedRevision,
     p_lines: input.lines.map((line, index) => ({
       id: line.id,
       item_master_id: line.isCustom || !line.itemId ? null : line.itemId,

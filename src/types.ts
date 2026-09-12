@@ -79,6 +79,7 @@ export type Quote = {
   invoiceNo?: string
   // null/undefined means the historical tax rate was not recorded.
   taxRate?: number | null
+  revision?: number
 }
 
 export type InvoiceSnapshot = {
@@ -105,6 +106,8 @@ export type Invoice = {
   amount: number
   createdAt: string
   snapshot?: InvoiceSnapshot | null
+  dueDate?: string | null
+  bankDetails?: string
 }
 
 export type Activity = {

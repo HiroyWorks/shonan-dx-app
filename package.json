@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "backup:verify": "node scripts/backup-verify.mjs",
+    "backup:restore": "node scripts/backup-restore.mjs",
+    "check:edge": "tsc -p tsconfig.edge.json",
     "test": "node --test tests/*.test.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build --base=./",
@@ -25,6 +28,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
+    "pg": "8.23.0",
     "supabase": "2.114.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",

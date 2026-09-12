@@ -1210,6 +1210,106 @@ td {
   to { transform: rotate(360deg); }
 }
 
+.workflow-box { padding: 20px; margin: 16px 0; border: 1px solid #d8d5cf; border-radius: 12px; background: #fffdf8; }
+.workflow-box h3, .workflow-box h4 { margin: 0 0 12px; }
+.workflow-form, .workflow-form label { display: grid; gap: 10px; }
+.workflow-form textarea, .workflow-form input, .workflow-form select, .workflow-box textarea { width: 100%; max-width: 100%; box-sizing: border-box; }
+.workflow-form textarea, .workflow-box textarea { min-height: 90px; }
+.workflow-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.workflow-actions button, .workflow-box button { min-height: 36px; }
+.workflow-actions button:not(.btn), .workflow-box button:not(.btn) { padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #334155; }
+.workflow-actions button:disabled, .workflow-box button:disabled { opacity: .5; cursor: not-allowed; }
+.workflow-box .danger-button { color: #b91c1c !important; border-color: #fecaca !important; }
+.workflow-list { list-style: none; padding: 0; margin: 16px 0; }
+.workflow-list > li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding: 14px 0; border-bottom: 1px solid #e5e1d9; overflow-wrap: anywhere; }
+.workflow-list p { margin: 5px 0; }
+.workflow-notice { padding: 14px; border: 1px solid #b9cddb; background: #eef6fb; border-radius: 8px; overflow-wrap: anywhere; }
+.pre-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.hash-text { font-size: .75rem; overflow-wrap: anywhere; }
+.checkbox-label { display: flex !important; align-items: flex-start; }
+.checkbox-label input { width: auto; }
+/* Invoice reference: コピー001_請求書_タテ型_適格請求書版.xlsx, A1:H34. */
+.paper.invoice-paper {
+  width: 210mm;
+  max-width: none;
+  min-height: 297mm;
+  padding: 19mm 13mm;
+  border-radius: 0;
+  background: #fff;
+  font-family: 'Yu Gothic', '游ゴシック', 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.5;
+  color: #111;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.paper-wrap:has(.invoice-paper) { overflow-x: auto; }
+.invoice-paper p, .invoice-paper dl, .invoice-paper dd { margin: 0; }
+.paper .invoice-title {
+  margin: 0 0 6mm;
+  text-align: center;
+  font-size: 18pt;
+  font-weight: 400;
+  line-height: 1.5;
+}
+.invoice-heading { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 8mm; min-height: 18mm; }
+.invoice-customer { font-size: 17pt; }
+.invoice-address { margin-top: 2mm !important; font-size: 9pt; white-space: pre-wrap; }
+.invoice-identifiers { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 3mm; align-content: start; text-align: right; }
+.invoice-information { display: grid; grid-template-columns: minmax(0, 57fr) minmax(0, 39fr); gap: 4%; margin: 5mm 0 7mm; break-inside: avoid; }
+.invoice-greeting { margin-bottom: 1mm !important; }
+.invoice-conditions { display: grid; grid-template-columns: 23mm minmax(0, 1fr); }
+.invoice-conditions dt, .invoice-amount > span, .invoice-totals dt { color: #fff; background: #363636; text-align: center; padding: 1mm 1.5mm; font-weight: 400; }
+.invoice-conditions dd { padding: 1mm 2mm; white-space: pre-wrap; }
+.invoice-bank { min-height: 12mm; }
+.invoice-amount { display: grid; grid-template-columns: 23mm minmax(0, 1fr); margin-top: 6mm; min-height: 13mm; border: 1px solid #999; }
+.invoice-amount > span { display: grid; place-items: center; }
+.invoice-amount strong { padding: 2mm; font-size: 16pt; font-weight: 400; text-align: center; align-self: center; }
+.invoice-issuer { display: flex; flex-direction: column; gap: 1mm; padding-top: 1mm; }
+.invoice-registration { margin-top: auto !important; padding-top: 6mm; }
+.invoice-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.invoice-description-col { width: 40%; }
+.invoice-quantity-col { width: 10%; }
+.invoice-unit-col { width: 8%; }
+.invoice-price-col { width: 16%; }
+.invoice-tax-col { width: 9%; }
+.invoice-total-col { width: 17%; }
+.invoice-grid th, .invoice-grid td { padding: 1mm 1.5mm; border: 1px solid #aaa; font-size: 10pt; font-weight: 400; line-height: 1.5; height: 7mm; }
+.invoice-grid th { color: #fff; background: #363636; border-color: #363636; letter-spacing: 0; text-transform: none; text-align: center; }
+.invoice-grid td { text-align: right; }
+.invoice-grid td:first-child { text-align: left; white-space: pre-wrap; }
+.invoice-grid td:nth-child(3), .invoice-grid td:nth-child(5) { text-align: center; }
+.invoice-grid thead { display: table-header-group; }
+.invoice-grid tr { break-inside: avoid; page-break-inside: avoid; }
+.invoice-summary { display: flex; justify-content: space-between; align-items: flex-start; gap: 5mm; break-inside: avoid; }
+.invoice-tax-breakdown { width: 47%; margin-top: 6mm; border-collapse: collapse; table-layout: fixed; }
+.invoice-tax-breakdown th, .invoice-tax-breakdown td { padding: 1mm; border: 0; background: #fff; color: #111; font-size: 8.5pt; font-weight: 400; line-height: 1.5; letter-spacing: 0; text-transform: none; }
+.invoice-tax-breakdown thead th { border-bottom: 1px solid #aaa; text-align: center; }
+.invoice-tax-breakdown tbody th, .invoice-tax-breakdown td { text-align: right; }
+.invoice-totals { display: grid; grid-template-columns: minmax(0, 25fr) minmax(0, 17fr); width: 42%; }
+.invoice-totals dt, .invoice-totals dd { padding: 1mm 1.5mm; min-height: 7mm; }
+.invoice-totals dd { border: 1px solid #aaa; border-top: 0; text-align: right; }
+.invoice-notes { margin-top: 7mm; }
+.invoice-notes h3 { margin: 0; padding: 1mm; background: #2e2e2e; color: #fff; font-size: 10.5pt; font-weight: 400; text-align: center; break-after: avoid; }
+.invoice-notes p { padding: 2mm 0; white-space: pre-wrap; orphans: 3; widows: 3; }
+
+@page invoice { size: A4 portrait; margin: 19mm 13mm; }
+@media print {
+  .paper.invoice-paper {
+    page: invoice;
+    width: 100% !important;
+    min-height: 0;
+    padding: 0 !important;
+    color: #111 !important;
+    font-size: 10.5pt;
+    line-height: 1.5;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .paper .invoice-title { margin: 0 0 6mm !important; font-size: 18pt !important; line-height: 1.5 !important; }
+}
+.workflow-box summary { cursor: pointer; font-weight: 700; }
+
 @media (max-width: 900px) {
   .login-page {
     grid-template-columns: 1fr;

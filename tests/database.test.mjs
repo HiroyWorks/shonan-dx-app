@@ -25,7 +25,7 @@ test('migration, issued-document protection, rounding and RLS', async (t) => {
   `)
   const migrations = fs.readdirSync('supabase/migrations').filter((name) => name.endsWith('.sql')).sort()
   const latest = migrations.find((name) => name.endsWith('_protect_issued_invoices.sql'))
-  for (const name of migrations.filter((name) => name !== latest)) {
+  for (const name of migrations.filter((name) => name < latest)) {
     // gen_random_uuid is built into this PostgreSQL engine; pgcrypto itself is not bundled.
     await db.exec(fs.readFileSync(`supabase/migrations/${name}`, 'utf8').replace('create extension if not exists pgcrypto;', ''))
   }
@@ -209,5 +209,19 @@ test('migration, issued-document protection, rounding and RLS', async (t) => {
     const row = (await db.query("select relrowsecurity, has_table_privilege('authenticated', 'app_private.invoice_number_counters', 'UPDATE') as writable from pg_class where oid = 'app_private.invoice_number_counters'::regclass")).rows[0]
     assert.equal(row.relrowsecurity, true)
     assert.equal(row.writable, false)
+  })
+
+  await t.test('follow-up workflow migrations preserve historical invoice amounts and unknown original fields', async () => {
+    await db.exec(`alter table auth.users add column email text,add column email_confirmed_at timestamptz;
+      create schema storage;
+      create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
+      create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text,name text,metadata jsonb);
+      alter table storage.objects enable row level security;`)
+    for (const name of migrations.filter((name) => name > latest)) await db.exec(fs.readFileSync(`supabase/migrations/${name}`, 'utf8'))
+    const after = (await db.query('select id,amount,invoice_no,snapshot,due_date,bank_details from public.invoices where quote_id=$1', [legacyId])).rows[0]
+    assert.deepEqual(after, { ...before, snapshot: null, due_date: null, bank_details: '' })
+    const baseline = (await db.query('select revision,content from public.quote_revisions where quote_id=$1', [legacyId])).rows[0]
+    assert.equal(baseline.revision, 1); assert.equal(baseline.content.baseline, true)
+    assert.equal(baseline.content.quote.tax_rate, null)
   })
 })
