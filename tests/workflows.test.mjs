@@ -188,6 +188,24 @@ test('complete document workflows, tenant security and full restore', async (t) 
     assert.deepEqual((await db.query('select * from public.invoices where id=$1', [invoice.id])).rows[0], invoice)
   })
 
+  await t.test('restore compares timestamp instants across timezones without losing microseconds or changing text', async () => {
+    const copy = structuredClone(backup)
+    copy.data.companies[0].created_at = '2026-09-01T12:34:56.123456+00:00'
+    copy.data.customers[0].memo = '2026-09-01T12:34:56.123456+00:00'
+    const { checksum: previous, ...payload } = copy
+    void previous
+    copy.checksum = await checksum(payload)
+    const recovery = await createIsolatedDatabase()
+    try {
+      await recovery.exec("set timezone='Asia/Tokyo'")
+      for (const p of copy.data.profiles) await recovery.query('insert into auth.users(id,email,email_confirmed_at) values($1,$2,now())', [p.id,p.email])
+      await restoreIntoEmptyDatabase(recovery, copy)
+      const time = (await recovery.query("select to_char(created_at at time zone 'UTC','YYYY-MM-DD HH24:MI:SS.US') value from public.companies")).rows[0].value
+      assert.equal(time, '2026-09-01 12:34:56.123456')
+      assert.equal((await recovery.query('select memo from public.customers')).rows[0].memo, copy.data.customers[0].memo)
+    } finally { await recovery.close() }
+  })
+
   await t.test('tampered/missing PDFs, counts, invoice amount and dangling references fail verification', async () => {
     const copy = () => structuredClone(backup)
     let x = copy(); x.files[0].base64 = Buffer.from('tampered').toString('base64'); await assert.rejects(validateFullBackup(x), /ハッシュ|サイズ/)

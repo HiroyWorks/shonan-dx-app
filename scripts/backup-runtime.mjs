@@ -60,7 +60,9 @@ export async function restoreIntoEmptyDatabase(db, backup, beforeCommit = async 
     if (backup.data.profiles.some((p) => !users.has(p.id))) throw new Error('元のAuthユーザーIDが復旧先にありません。先に認証基盤を復元してください。パスワードやOAuth設定は本バックアップに含まれません。')
     for (const table of restoreTables) await db.query(`alter table ${qualified(table)} disable trigger user`)
     for (const table of restoreTables) {
-      const columns = new Set((await db.query('select attname from pg_attribute where attrelid=$1::regclass and attnum>0 and not attisdropped', [qualified(table)])).rows.map((r) => r.attname))
+      const columnDetails = (await db.query("select attname, atttypid='timestamptz'::regtype as timezone_aware from pg_attribute where attrelid=$1::regclass and attnum>0 and not attisdropped", [qualified(table)])).rows
+      const columns = new Set(columnDetails.map((r) => r.attname))
+      const timestampColumns = columnDetails.filter((r) => r.timezone_aware).map((r) => r.attname)
       let rows = backup.data[table]
       if (rows.some((r) => Object.keys(r).some((k) => !columns.has(k)) || Object.keys(r).length !== columns.size)) throw new Error(`${table} のスキーマが一致しません。別バージョンの復元は行いません。`)
       // Positive entries must exist before reversal FKs are checked.
@@ -68,8 +70,15 @@ export async function restoreIntoEmptyDatabase(db, backup, beforeCommit = async 
       for (let i = 0; i < rows.length; i += 500) await db.query(`insert into ${qualified(table)} select * from jsonb_populate_recordset(null::${qualified(table)},$1::jsonb)`, [JSON.stringify(rows.slice(i, i + 500))])
       const rowJson = table === 'invoice_number_counters' ? "to_jsonb(t)||jsonb_build_object('next_sequence',t.next_sequence::text)" : 'to_jsonb(t)'
       const restored = (await db.query(`select ${rowJson} as row from ${qualified(table)} t`)).rows.map((r) => r.row)
+      // timestamptz JSON uses the destination session's timezone. Normalize only
+      // typed timestamp columns; preserve microseconds and leave JSON/text values exact.
+      let expected = rows
+      if (timestampColumns.length && rows.length) {
+        const normalized = (await db.query(`select to_jsonb(t)-'ordinality' as row from jsonb_populate_recordset(null::${qualified(table)},$1::jsonb) with ordinality t order by ordinality`, [JSON.stringify(rows)])).rows.map((r) => r.row)
+        expected = rows.map((row, i) => ({ ...row, ...Object.fromEntries(timestampColumns.map((key) => [key, normalized[i][key]])) }))
+      }
       const stable = (values) => values.map(canonicalJson).sort()
-      if (JSON.stringify(stable(restored)) !== JSON.stringify(stable(rows))) throw new Error(`${table} の復元前後の全行比較が一致しません。`)
+      if (JSON.stringify(stable(restored)) !== JSON.stringify(stable(expected))) throw new Error(`${table} の復元前後の全行比較が一致しません。`)
     }
     await assertBusinessIntegrity(db)
     for (const table of restoreTables) await db.query(`alter table ${qualified(table)} enable trigger user`)
